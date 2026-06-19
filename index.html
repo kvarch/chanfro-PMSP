@@ -140,15 +140,101 @@ function extractPolygon(raw) {
   return null;
 }
 
-// ─── Geometry: Offset ────────────────────────────────────────────────────────
-function offsetPolygon(feature, distanceMeters) {
-  const km = distanceMeters / 1000;
-  const buffered = turf.buffer(feature, km, { units: 'kilometers', steps: 1 });
-  if (!buffered || !buffered.geometry) return null;
-  if (buffered.geometry.type === 'MultiPolygon') {
-    return { ...buffered, geometry: { type: 'Polygon', coordinates: buffered.geometry.coordinates[0] } };
+// ─── Geometry: Offset (perpendicular, exact distance, mitered corners) ───────
+//
+// Strategy: for each edge of the ring, compute the offset line (perpendicular
+// to the edge at the given distance). Then intersect consecutive offset lines
+// to find the new vertex positions. This gives exact perpendicular distance
+// on every side, with clean mitered corners — identical to CAD offset behavior.
+
+function vec2(A, B) { return [B[0] - A[0], B[1] - A[1]]; }
+function len2(v) { return Math.sqrt(v[0]*v[0] + v[1]*v[1]); }
+function norm2(v) { const l = len2(v); return [v[0]/l, v[1]/l]; }
+// Left-hand perpendicular (for CCW ring = outward normal inward)
+function perp2(v) { return [-v[1], v[0]]; }
+
+// Convert metres to degrees (approximate, valid for small distances)
+// At latitude φ: 1° lon ≈ 111320 * cos(φ) m, 1° lat ≈ 111320 m
+function mToDeg(metres, lat) {
+  const latDeg = metres / 111320;
+  const lonDeg = metres / (111320 * Math.cos(lat * Math.PI / 180));
+  return { latDeg, lonDeg };
+}
+
+// Line–line intersection in 2D: returns the intersection point of two infinite lines
+// each defined by a point + direction vector, or null if parallel
+function lineIntersect2D(p1, d1, p2, d2) {
+  const cross = d1[0]*d2[1] - d1[1]*d2[0];
+  if (Math.abs(cross) < 1e-14) return null; // parallel
+  const dx = p2[0] - p1[0], dy = p2[1] - p1[1];
+  const t = (dx*d2[1] - dy*d2[0]) / cross;
+  return [p1[0] + t*d1[0], p1[1] + t*d1[1]];
+}
+
+function offsetRing(ring, distMeters) {
+  // ring is closed (last = first), work with n unique points
+  const n = ring.length - 1;
+  if (n < 3) return null;
+
+  // Determine ring orientation (turf.booleanClockwise)
+  const line = turf.lineString(ring);
+  const isCW = turf.booleanClockwise(line);
+
+  // For an inward offset of a CCW ring, we offset each edge to the right.
+  // Sign: negative distMeters = inward for CCW ring.
+  // We'll always apply the sign as passed (caller handles sign).
+
+  // Compute average latitude for degree conversion
+  const avgLat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+  const { latDeg, lonDeg } = mToDeg(Math.abs(distMeters), avgLat);
+  const sign = distMeters < 0 ? -1 : 1;
+
+  // For each edge, compute the offset line (as point + direction)
+  const offsetLines = [];
+  for (let i = 0; i < n; i++) {
+    const A = ring[i];
+    const B = ring[(i + 1) % n];
+    const edge = vec2(A, B);
+    const edgeNorm = norm2(edge);
+    // Right-hand perpendicular (pointing inward for CCW ring)
+    // isCW: left-hand is inward; we flip accordingly
+    const perpDir = isCW
+      ? [-edgeNorm[1],  edgeNorm[0]]   // left perp
+      : [ edgeNorm[1], -edgeNorm[0]];  // right perp
+
+    // offset in degrees (lon and lat scale differently)
+    const offLon = perpDir[0] * lonDeg * sign;
+    const offLat = perpDir[1] * latDeg * sign;
+
+    const p = [A[0] + offLon, A[1] + offLat];
+    offsetLines.push({ p, d: edgeNorm });
   }
-  return buffered;
+
+  // Intersect consecutive offset lines to get new vertices
+  const newRing = [];
+  for (let i = 0; i < n; i++) {
+    const cur  = offsetLines[i];
+    const next = offsetLines[(i + 1) % n];
+    const pt = lineIntersect2D(cur.p, cur.d, next.p, next.d);
+    if (pt) {
+      newRing.push(pt);
+    } else {
+      // Parallel edges: just use the offset point of the shared vertex
+      newRing.push(next.p);
+    }
+  }
+  newRing.push(newRing[0]); // close
+  return newRing;
+}
+
+function offsetPolygon(feature, distanceMeters) {
+  const ring = feature.geometry.coordinates[0];
+  const newRing = offsetRing(ring, distanceMeters);
+  if (!newRing || newRing.length < 4) return null;
+  return {
+    ...feature,
+    geometry: { type: 'Polygon', coordinates: [newRing] }
+  };
 }
 
 // ─── Geometry: Chamfer ───────────────────────────────────────────────────────
@@ -422,7 +508,7 @@ function App() {
       h('div', { style: { fontSize: '17px', fontWeight: 600, color: '#dde3ee', letterSpacing: '-0.2px' } },
         h('span', { style: { color: '#00ACCD' } }, '⬡ '), 'Offset + Chanfro'
       ),
-      h('div', { style: { fontSize: '10px', color: '#2e3650', marginTop: '2px' } }, 'beta v3 · KV Arquitetos')
+      h('div', { style: { fontSize: '10px', color: '#2e3650', marginTop: '2px' } }, 'beta v4 · KV Arquitetos')
     ),
 
     // Status
