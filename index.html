@@ -101,33 +101,42 @@ import { giraffeState, rpc } from '@gi-nx/iframe-sdk';
 import * as turf from 'turf';
 
 // ─── Geometry: extract valid Polygon from raw Giraffe feature ────────────────
+function closeRing(coords) {
+  if (coords.length < 3) return null;
+  const first = coords[0], last = coords[coords.length - 1];
+  const closed = (first[0] === last[0] && first[1] === last[1])
+    ? coords
+    : [...coords, first];
+  return closed;
+}
+
+function geomToPolygon(geom) {
+  if (!geom) return null;
+  if (geom.type === 'Polygon') return geom;
+  if (geom.type === 'MultiPolygon') return { type: 'Polygon', coordinates: geom.coordinates[0] };
+  if (geom.type === 'LineString') {
+    const ring = closeRing(geom.coordinates);
+    if (!ring) return null;
+    return { type: 'Polygon', coordinates: [ring] };
+  }
+  if (geom.type === 'MultiLineString') {
+    const ring = closeRing(geom.coordinates[0]);
+    if (!ring) return null;
+    return { type: 'Polygon', coordinates: [ring] };
+  }
+  return null;
+}
+
 function extractPolygon(raw) {
   if (!raw) return null;
-
-  // Case 1: already a GeoJSON Feature with geometry
-  if (raw.geometry && raw.geometry.type === 'Polygon') return raw;
-  if (raw.geometry && raw.geometry.type === 'MultiPolygon') {
-    return { ...raw, geometry: { type: 'Polygon', coordinates: raw.geometry.coordinates[0] } };
+  // Try geometry directly on the feature
+  const geom = geomToPolygon(raw.geometry);
+  if (geom) return { type: 'Feature', properties: raw.properties || {}, geometry: geom };
+  // Try other nested locations
+  for (const g of [raw.geojson, raw.geojson?.geometry, raw.properties?.geometry].filter(Boolean)) {
+    const geom2 = geomToPolygon(g);
+    if (geom2) return { type: 'Feature', properties: raw.properties || {}, geometry: geom2 };
   }
-
-  // Case 2: Giraffe raw section — geometry may be nested under properties or top-level
-  // Try common locations
-  const candidates = [
-    raw.geometry,
-    raw.geojson,
-    raw.geojson && raw.geojson.geometry,
-    raw.properties && raw.properties.geometry,
-  ].filter(Boolean);
-
-  for (const geom of candidates) {
-    if (geom && geom.type === 'Polygon') {
-      return { type: 'Feature', properties: raw.properties || {}, geometry: geom };
-    }
-    if (geom && geom.type === 'MultiPolygon') {
-      return { type: 'Feature', properties: raw.properties || {}, geometry: { type: 'Polygon', coordinates: geom.coordinates[0] } };
-    }
-  }
-
   return null;
 }
 
@@ -245,7 +254,7 @@ function App() {
 
       if (!found) {
         setStatus({ type: 'err', msg: 'Feature selecionada não é um polígono válido' });
-        log('Não foi possível extrair polígono. Estrutura: ' + Object.keys(candidates[0] || {}).join(', '), 'err');
+        log('Não foi possível converter para polígono. Tipo recebido: ' + (candidates[0]?.geometry?.type || Object.keys(candidates[0] || {}).join(', ')), 'err');
         return;
       }
 
@@ -413,7 +422,7 @@ function App() {
       h('div', { style: { fontSize: '17px', fontWeight: 600, color: '#dde3ee', letterSpacing: '-0.2px' } },
         h('span', { style: { color: '#00ACCD' } }, '⬡ '), 'Offset + Chanfro'
       ),
-      h('div', { style: { fontSize: '10px', color: '#2e3650', marginTop: '2px' } }, 'beta v2 · KV Arquitetos')
+      h('div', { style: { fontSize: '10px', color: '#2e3650', marginTop: '2px' } }, 'beta v3 · KV Arquitetos')
     ),
 
     // Status
