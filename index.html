@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Offset + Chanfro</title>
+<title>Offset + Chanfro PMSP</title>
 <link href="https://fonts.googleapis.com/css2?family=Hind:wght@300;400;500;600&display=swap" rel="stylesheet" />
 <script type="importmap">
 {
@@ -20,75 +20,55 @@
 body { font-family: 'Hind', sans-serif; background: #0d0f18; color: #dde3ee; min-height: 100vh; font-size: 13px; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-thumb { background: #00ACCD33; border-radius: 2px; }
-
 .app { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-
 .panel { background: #161926; border: 1px solid #252838; border-radius: 9px; overflow: hidden; }
 .panel-header { padding: 8px 12px; border-bottom: 1px solid #252838; display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #55607a; }
 .panel-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-
 .step-badge { width: 18px; height: 18px; background: #00ACCD22; color: #00ACCD; border-radius: 50%; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .step-badge.done { background: #00ACCD; color: #0d0f18; }
 .step-badge.inactive { background: #252838; color: #55607a; }
-
 .field-label { font-size: 11px; color: #55607a; margin-bottom: 3px; display: block; }
 .input-row { display: flex; align-items: center; gap: 6px; background: #0d0f18; border: 1px solid #252838; border-radius: 6px; padding: 6px 10px; transition: border-color 0.15s; }
 .input-row:focus-within { border-color: #00ACCD55; }
 .input-row input { background: transparent; border: none; outline: none; color: #dde3ee; font-family: 'Hind', sans-serif; font-size: 14px; width: 100%; }
 .input-unit { color: #444c66; font-size: 12px; white-space: nowrap; }
-.field-hint { font-size: 10px; color: #344; margin-top: 2px; }
-
+.field-hint { font-size: 10px; color: #3a4a55; margin-top: 2px; }
 .tab-row { display: flex; gap: 4px; }
 .tab-btn { flex: 1; padding: 6px 0; border-radius: 6px; border: 1px solid #252838; background: transparent; color: #55607a; font-family: 'Hind', sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.12s; }
 .tab-btn:hover { border-color: #00ACCD44; color: #99b0c4; }
 .tab-btn.active { background: #00ACCD18; border-color: #00ACCD55; color: #00ACCD; }
 .tab-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-
 .vertex-grid { display: flex; flex-wrap: wrap; gap: 4px; }
 .v-btn { padding: 4px 8px; border-radius: 5px; border: 1px solid #252838; background: #0d0f18; color: #667; font-family: monospace; font-size: 11px; cursor: pointer; transition: all 0.1s; line-height: 1; }
-.v-btn.available { color: #99b0c4; cursor: pointer; }
+.v-btn.available { color: #99b0c4; }
 .v-btn.available:hover { border-color: #00ACCD44; }
 .v-btn.selected { background: #00ACCD22; border-color: #00ACCD; color: #00ACCD; }
 .v-btn.unavailable { opacity: 0.3; cursor: default; }
-
 .btn-primary { background: #00ACCD; color: #0d0f18; font-weight: 700; border: none; border-radius: 7px; padding: 10px; cursor: pointer; font-family: 'Hind', sans-serif; font-size: 13px; width: 100%; transition: background 0.12s, transform 0.08s; }
 .btn-primary:hover { background: #00bde0; }
 .btn-primary:active { transform: scale(0.98); }
 .btn-primary:disabled { background: #1e2232; color: #3a4155; cursor: not-allowed; }
-
 .btn-capture { background: #1e2a38; color: #00ACCD; border: 1px solid #00ACCD55; border-radius: 7px; padding: 10px; cursor: pointer; font-family: 'Hind', sans-serif; font-size: 13px; font-weight: 600; width: 100%; transition: all 0.12s; }
 .btn-capture:hover { background: #00ACCD18; border-color: #00ACCD; }
-.btn-capture:active { transform: scale(0.98); }
-
 .btn-secondary { background: transparent; color: #00ACCD; border: 1px solid #00ACCD33; border-radius: 7px; padding: 8px; cursor: pointer; font-family: 'Hind', sans-serif; font-size: 12px; width: 100%; transition: all 0.12s; }
 .btn-secondary:hover { border-color: #00ACCD77; background: #00ACCD0a; }
 .btn-secondary:disabled { opacity: 0.3; cursor: not-allowed; }
-
 .status-bar { display: flex; align-items: center; gap: 7px; padding: 7px 11px; border-radius: 7px; font-size: 11px; font-weight: 500; }
 .status-bar.ok   { background: #00ACCD12; border: 1px solid #00ACCD2a; color: #00ACCD; }
 .status-bar.warn { background: #f5a62312; border: 1px solid #f5a6232a; color: #f5a623; }
 .status-bar.err  { background: #f5555512; border: 1px solid #f555552a; color: #f56; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-
-.metric-row { display: flex; gap: 6px; }
-.metric { flex: 1; background: #0d0f18; border: 1px solid #1e2232; border-radius: 6px; padding: 6px 8px; text-align: center; }
-.metric-val { font-size: 14px; font-weight: 600; color: #00ACCD; }
-.metric-lbl { font-size: 9px; color: #3a4155; margin-top: 1px; text-transform: uppercase; letter-spacing: 0.05em; }
-
 .divider { border: none; border-top: 1px solid #1e2232; }
-
 .log-box { background: #090b12; border-radius: 6px; padding: 7px 9px; font-size: 10px; font-family: monospace; color: #3a6; max-height: 90px; overflow-y: auto; line-height: 1.6; }
 .log-err  { color: #f66; }
 .log-warn { color: #f5a623; }
 .log-ok   { color: #00ACCD; }
 .log-dim  { color: #3a4155; }
-
 .pipeline { display: flex; align-items: center; background: #0d0f18; border: 1px solid #1e2232; border-radius: 7px; overflow: hidden; }
 .pipe-step { flex: 1; padding: 6px 4px; text-align: center; font-size: 10px; color: #2e3650; border-right: 1px solid #1e2232; transition: all 0.15s; }
 .pipe-step:last-child { border-right: none; }
 .pipe-step.active { color: #00ACCD; background: #00ACCD0a; }
 .pipe-step.done   { color: #009aaa; }
-
 .capture-hint { font-size: 10px; color: #3a4155; text-align: center; line-height: 1.5; }
 </style>
 </head>
@@ -96,192 +76,247 @@ body { font-family: 'Hind', sans-serif; background: #0d0f18; color: #dde3ee; min
 <div id="root"></div>
 <script type="module">
 import { createRoot } from 'react-dom/client';
-import { createElement as h, useState, useEffect, useCallback, useRef } from 'react';
+import { createElement as h, useState, useEffect, useCallback } from 'react';
 import { giraffeState, rpc } from '@gi-nx/iframe-sdk';
 import * as turf from 'turf';
 
-// ─── Geometry: extract valid Polygon from raw Giraffe feature ────────────────
-function closeRing(coords) {
-  if (coords.length < 3) return null;
-  const first = coords[0], last = coords[coords.length - 1];
-  const closed = (first[0] === last[0] && first[1] === last[1])
-    ? coords
-    : [...coords, first];
-  return closed;
-}
+// ═══════════════════════════════════════════════════════════════════════════════
+// GEOMETRY CORE
+// All calculations work in lon/lat (WGS84). For small distances (<500m) the
+// flat-earth approximation in degree-space is valid when we account for
+// latitude scaling on the longitude axis.
+// ═══════════════════════════════════════════════════════════════════════════════
 
-function geomToPolygon(geom) {
-  if (!geom) return null;
-  if (geom.type === 'Polygon') return geom;
-  if (geom.type === 'MultiPolygon') return { type: 'Polygon', coordinates: geom.coordinates[0] };
-  if (geom.type === 'LineString') {
-    const ring = closeRing(geom.coordinates);
-    if (!ring) return null;
-    return { type: 'Polygon', coordinates: [ring] };
-  }
-  if (geom.type === 'MultiLineString') {
-    const ring = closeRing(geom.coordinates[0]);
-    if (!ring) return null;
-    return { type: 'Polygon', coordinates: [ring] };
-  }
-  return null;
-}
-
-function extractPolygon(raw) {
-  if (!raw) return null;
-  // Try geometry directly on the feature
-  const geom = geomToPolygon(raw.geometry);
-  if (geom) return { type: 'Feature', properties: raw.properties || {}, geometry: geom };
-  // Try other nested locations
-  for (const g of [raw.geojson, raw.geojson?.geometry, raw.properties?.geometry].filter(Boolean)) {
-    const geom2 = geomToPolygon(g);
-    if (geom2) return { type: 'Feature', properties: raw.properties || {}, geometry: geom2 };
-  }
-  return null;
-}
-
-// ─── Geometry: Offset (perpendicular, exact distance, mitered corners) ───────
-//
-// Strategy: for each edge of the ring, compute the offset line (perpendicular
-// to the edge at the given distance). Then intersect consecutive offset lines
-// to find the new vertex positions. This gives exact perpendicular distance
-// on every side, with clean mitered corners — identical to CAD offset behavior.
-
-function vec2(A, B) { return [B[0] - A[0], B[1] - A[1]]; }
-function len2(v) { return Math.sqrt(v[0]*v[0] + v[1]*v[1]); }
-function norm2(v) { const l = len2(v); return [v[0]/l, v[1]/l]; }
-// Left-hand perpendicular (for CCW ring = outward normal inward)
-function perp2(v) { return [-v[1], v[0]]; }
-
-// Convert metres to degrees (approximate, valid for small distances)
-// At latitude φ: 1° lon ≈ 111320 * cos(φ) m, 1° lat ≈ 111320 m
-function mToDeg(metres, lat) {
-  const latDeg = metres / 111320;
-  const lonDeg = metres / (111320 * Math.cos(lat * Math.PI / 180));
-  return { latDeg, lonDeg };
-}
-
-// Line–line intersection in 2D: returns the intersection point of two infinite lines
-// each defined by a point + direction vector, or null if parallel
-function lineIntersect2D(p1, d1, p2, d2) {
-  const cross = d1[0]*d2[1] - d1[1]*d2[0];
-  if (Math.abs(cross) < 1e-14) return null; // parallel
-  const dx = p2[0] - p1[0], dy = p2[1] - p1[1];
-  const t = (dx*d2[1] - dy*d2[0]) / cross;
-  return [p1[0] + t*d1[0], p1[1] + t*d1[1]];
-}
-
-function offsetRing(ring, distMeters) {
-  // ring is closed (last = first), work with n unique points
-  const n = ring.length - 1;
-  if (n < 3) return null;
-
-  // Determine ring orientation (turf.booleanClockwise)
-  const line = turf.lineString(ring);
-  const isCW = turf.booleanClockwise(line);
-
-  // For an inward offset of a CCW ring, we offset each edge to the right.
-  // Sign: negative distMeters = inward for CCW ring.
-  // We'll always apply the sign as passed (caller handles sign).
-
-  // Compute average latitude for degree conversion
-  const avgLat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
-  const { latDeg, lonDeg } = mToDeg(Math.abs(distMeters), avgLat);
-  const sign = distMeters < 0 ? -1 : 1;
-
-  // For each edge, compute the offset line (as point + direction)
-  const offsetLines = [];
-  for (let i = 0; i < n; i++) {
-    const A = ring[i];
-    const B = ring[(i + 1) % n];
-    const edge = vec2(A, B);
-    const edgeNorm = norm2(edge);
-    // Right-hand perpendicular (pointing inward for CCW ring)
-    // isCW: left-hand is inward; we flip accordingly
-    const perpDir = isCW
-      ? [-edgeNorm[1],  edgeNorm[0]]   // left perp
-      : [ edgeNorm[1], -edgeNorm[0]];  // right perp
-
-    // offset in degrees (lon and lat scale differently)
-    const offLon = perpDir[0] * lonDeg * sign;
-    const offLat = perpDir[1] * latDeg * sign;
-
-    const p = [A[0] + offLon, A[1] + offLat];
-    offsetLines.push({ p, d: edgeNorm });
-  }
-
-  // Intersect consecutive offset lines to get new vertices
-  const newRing = [];
-  for (let i = 0; i < n; i++) {
-    const cur  = offsetLines[i];
-    const next = offsetLines[(i + 1) % n];
-    const pt = lineIntersect2D(cur.p, cur.d, next.p, next.d);
-    if (pt) {
-      newRing.push(pt);
-    } else {
-      // Parallel edges: just use the offset point of the shared vertex
-      newRing.push(next.p);
-    }
-  }
-  newRing.push(newRing[0]); // close
-  return newRing;
-}
-
-function offsetPolygon(feature, distanceMeters) {
-  const ring = feature.geometry.coordinates[0];
-  const newRing = offsetRing(ring, distanceMeters);
-  if (!newRing || newRing.length < 4) return null;
+// Metres → degree conversion at a given latitude
+function degPerMetre(lat) {
+  const latRad = lat * Math.PI / 180;
   return {
-    ...feature,
-    geometry: { type: 'Polygon', coordinates: [newRing] }
+    lat: 1 / 111320,                           // ~constant
+    lon: 1 / (111320 * Math.cos(latRad))       // shrinks toward poles
   };
 }
 
-// ─── Geometry: Chamfer ───────────────────────────────────────────────────────
-function pointAlongSeg(A, B, distMeters) {
-  const total = turf.length(turf.lineString([A, B]), { units: 'meters' });
-  if (total < distMeters) return null;
-  const f = distMeters / total;
-  return [A[0] + (B[0] - A[0]) * f, A[1] + (B[1] - A[1]) * f];
+// Average latitude of a ring
+function avgLat(ring) {
+  return ring.reduce((s, c) => s + c[1], 0) / ring.length;
 }
 
-function chamferVertex(ring, i, halfDist) {
-  const n = ring.length - 1;
-  const prev = ring[(i - 1 + n) % n];
-  const curr = ring[i];
-  const next = ring[(i + 1) % n];
-  const p1 = pointAlongSeg(curr, prev, halfDist);
-  const p2 = pointAlongSeg(curr, next, halfDist);
-  return (p1 && p2) ? [p1, p2] : null;
+// 2-D vector helpers (working in a locally scaled space)
+// We convert lon/lat to a metric-like space for vector math, then convert back.
+function toMetric(coord, origin, scale) {
+  return [(coord[0] - origin[0]) / scale.lon, (coord[1] - origin[1]) / scale.lat];
+}
+function fromMetric(xy, origin, scale) {
+  return [origin[0] + xy[0] * scale.lon, origin[1] + xy[1] * scale.lat];
+}
+function vecSub(a, b)  { return [a[0]-b[0], a[1]-b[1]]; }
+function vecAdd(a, b)  { return [a[0]+b[0], a[1]+b[1]]; }
+function vecScale(v,s) { return [v[0]*s, v[1]*s]; }
+function vecLen(v)     { return Math.sqrt(v[0]*v[0]+v[1]*v[1]); }
+function vecNorm(v)    { const l=vecLen(v); return l<1e-12?[0,0]:[v[0]/l,v[1]/l]; }
+function vecPerp(v)    { return [-v[1], v[0]]; }  // 90° CCW
+function vecDot(a,b)   { return a[0]*b[0]+a[1]*b[1]; }
+
+// Line-line intersection in metric space
+// Line 1: point p1 + direction d1
+// Line 2: point p2 + direction d2
+// Returns the intersection point, or null if parallel
+function lineIntersect(p1, d1, p2, d2) {
+  const cross = d1[0]*d2[1] - d1[1]*d2[0];
+  if (Math.abs(cross) < 1e-12) return null;
+  const dx = p2[0]-p1[0], dy = p2[1]-p1[1];
+  const t = (dx*d2[1] - dy*d2[0]) / cross;
+  return [p1[0]+t*d1[0], p1[1]+t*d1[1]];
 }
 
-function applyRingChamfer(ring, halfDist, indexSet) {
-  const n = ring.length - 1;
+// ── Ensure ring is CCW (positive area in metric space) ──────────────────────
+function ringArea(mRing) {
+  let area = 0;
+  const n = mRing.length - 1;
+  for (let i = 0; i < n; i++) {
+    const a = mRing[i], b = mRing[(i+1)%n];
+    area += a[0]*b[1] - b[0]*a[1];
+  }
+  return area / 2;
+}
+
+// ── OFFSET POLYGON (perpendicular / miter, exact distance in metres) ─────────
+//
+// For each edge of the polygon ring, offset it perpendicularly inward/outward
+// by `distMeters`. Then intersect consecutive offset-edge lines to get the
+// new vertices. This is identical to a CAD miter offset.
+//
+// `distMeters` < 0 → inward for a CCW ring
+//               > 0 → outward for a CCW ring
+
+function offsetRingMetric(mRing, distMeters) {
+  // mRing: array of [x,y] in metres, closed (last === first)
+  const n = mRing.length - 1;
+  if (n < 3) return null;
+
+  // Ensure CCW; if CW, flip the effective sign
+  const area = ringArea(mRing);
+  const sign  = area > 0 ? 1 : -1;          // +1 if CCW
+  const d     = distMeters * sign;           // effective offset direction
+
+  // For each edge, compute the offset line (point + direction)
+  const offLines = [];
+  for (let i = 0; i < n; i++) {
+    const A = mRing[i];
+    const B = mRing[(i+1) % n];
+    const edge = vecSub(B, A);
+    const edgeN = vecNorm(edge);
+    // Left-hand perpendicular (inward for CCW ring when d<0)
+    const perp = vecPerp(edgeN);             // 90° CCW = left of edge direction
+    // Offset point on edge A
+    const offPt = vecAdd(A, vecScale(perp, d));
+    offLines.push({ p: offPt, d: edgeN });
+  }
+
+  // Intersect consecutive offset-lines to get new vertices
+  const newRing = [];
+  for (let i = 0; i < n; i++) {
+    const cur  = offLines[i];
+    const next = offLines[(i+1) % n];
+    const pt   = lineIntersect(cur.p, cur.d, next.p, next.d);
+    newRing.push(pt || next.p);              // fallback: parallel edges
+  }
+  newRing.push(newRing[0]);                  // close
+  return newRing;
+}
+
+function offsetPolygon(feature, distMeters) {
+  const ring   = feature.geometry.coordinates[0];
+  const origin = ring[0];
+  const scale  = degPerMetre(avgLat(ring));
+
+  // Convert to metric space
+  const mRing = ring.map(c => toMetric(c, origin, scale));
+
+  const mOff = offsetRingMetric(mRing, distMeters);
+  if (!mOff) return null;
+
+  // Convert back to lon/lat
+  const newCoords = mOff.map(xy => fromMetric(xy, origin, scale));
+  return { ...feature, geometry: { type: 'Polygon', coordinates: [newCoords] } };
+}
+
+// ── CHAMFER BY BISECTOR (PMSP rule) ─────────────────────────────────────────
+//
+// For each selected vertex of the OFFSET ring:
+//   1. The bisector direction = normalised sum of the two edge unit vectors
+//      pointing AWAY from the vertex (i.e. toward the adjacent vertices).
+//   2. Offset the bisector line ±(chamferSize/2) metres perpendicularly.
+//   3. Intersect each offset-bisector line with the two adjacent OFFSET edges.
+//   4. The two intersection points replace the vertex → the chamfer segment.
+//
+// This is equivalent to: walk chamferSize/2 metres along each adjacent edge
+// from the vertex and connect those two points — which is the standard
+// symmetric chamfer definition and matches the PMSP diagram exactly.
+
+function chamferVertexPMSP(mRing, i, halfDist) {
+  const n    = mRing.length - 1;
+  const prev = mRing[(i - 1 + n) % n];
+  const curr = mRing[i];
+  const next = mRing[(i + 1) % n];
+
+  // Unit vectors from curr toward prev and toward next
+  const toPrev = vecNorm(vecSub(prev, curr));
+  const toNext = vecNorm(vecSub(next, curr));
+
+  // Walk halfDist metres along each adjacent edge
+  const p1 = vecAdd(curr, vecScale(toPrev, halfDist));
+  const p2 = vecAdd(curr, vecScale(toNext, halfDist));
+
+  // Validate: both points must be within their respective segments
+  const segPrevLen = vecLen(vecSub(prev, curr));
+  const segNextLen = vecLen(vecSub(next, curr));
+  if (halfDist > segPrevLen || halfDist > segNextLen) return null;
+
+  return [p1, p2];
+}
+
+function applyRingChamfer(mRing, halfDist, indexSet) {
+  const n   = mRing.length - 1;
   const out = [];
   for (let i = 0; i < n; i++) {
     if (!indexSet || indexSet.has(i)) {
-      const res = chamferVertex(ring, i, halfDist);
-      if (res) { out.push(res[0]); out.push(res[1]); continue; }
+      const res = chamferVertexPMSP(mRing, i, halfDist);
+      if (res) {
+        out.push(res[0]);   // point on prev-edge arm
+        out.push(res[1]);   // point on next-edge arm
+        continue;
+      }
     }
-    out.push(ring[i]);
+    out.push(mRing[i]);
   }
   out.push(out[0]);
   return out;
 }
 
-function chamferFeature(feature, halfDist, selectedIndices) {
+function chamferFeature(feature, chamferMeters, selectedIndices) {
+  const ring   = feature.geometry.coordinates[0];
+  const origin = ring[0];
+  const scale  = degPerMetre(avgLat(ring));
+
+  const mRing  = ring.map(c => toMetric(c, origin, scale));
+  const half   = chamferMeters / 2;
   const indexSet = selectedIndices && selectedIndices.length > 0 ? new Set(selectedIndices) : null;
-  const newCoords = feature.geometry.coordinates.map((ring, ri) =>
-    ri === 0 ? applyRingChamfer(ring, halfDist, indexSet) : ring
-  );
-  return { ...feature, geometry: { type: 'Polygon', coordinates: newCoords } };
+
+  const mResult = applyRingChamfer(mRing, half, indexSet);
+  const coords  = mResult.map(xy => fromMetric(xy, origin, scale));
+
+  return { ...feature, geometry: { type: 'Polygon', coordinates: [coords] } };
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// Check if a vertex CAN be chamfered (both adjacent segments long enough)
+function vertexCanChamfer(mRing, i, halfDist) {
+  const n    = mRing.length - 1;
+  const prev = mRing[(i - 1 + n) % n];
+  const curr = mRing[i];
+  const next = mRing[(i + 1) % n];
+  return vecLen(vecSub(prev, curr)) >= halfDist &&
+         vecLen(vecSub(next, curr)) >= halfDist;
+}
+
+// ── EXTRACT POLYGON from raw Giraffe feature ─────────────────────────────────
+function closeRing(coords) {
+  if (coords.length < 3) return null;
+  const f = coords[0], l = coords[coords.length-1];
+  return (f[0]===l[0] && f[1]===l[1]) ? coords : [...coords, f];
+}
+function geomToPolygon(geom) {
+  if (!geom) return null;
+  if (geom.type === 'Polygon')      return geom;
+  if (geom.type === 'MultiPolygon') return { type:'Polygon', coordinates: geom.coordinates[0] };
+  if (geom.type === 'LineString') {
+    const r = closeRing(geom.coordinates);
+    return r ? { type:'Polygon', coordinates:[r] } : null;
+  }
+  if (geom.type === 'MultiLineString') {
+    const r = closeRing(geom.coordinates[0]);
+    return r ? { type:'Polygon', coordinates:[r] } : null;
+  }
+  return null;
+}
+function extractPolygon(raw) {
+  if (!raw) return null;
+  const geom = geomToPolygon(raw.geometry);
+  if (geom) return { type:'Feature', properties: raw.properties||{}, geometry: geom };
+  for (const g of [raw.geojson, raw.geojson?.geometry, raw.properties?.geometry].filter(Boolean)) {
+    const g2 = geomToPolygon(g);
+    if (g2) return { type:'Feature', properties: raw.properties||{}, geometry: g2 };
+  }
+  return null;
+}
+
+// ── Constants ────────────────────────────────────────────────────────────────
 const PREVIEW_OFFSET  = '__oc_prev_offset__';
 const PREVIEW_CHAMFER = '__oc_prev_chamfer__';
 
-// ─── App ─────────────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// APP
+// ════════════════════════════════════════════════════════════════════════════
 function App() {
   const [offsetDist,    setOffsetDist]    = useState('5.00');
   const [offsetDir,     setOffsetDir]     = useState('inward');
@@ -291,142 +326,110 @@ function App() {
 
   const [srcFeature,    setSrcFeature]    = useState(null);
   const [offsetFeature, setOffsetFeature] = useState(null);
+  // mRing of the current base (offset or src) in metric space — for arm checks
+  const [baseMRing,     setBaseMRing]     = useState(null);
   const [vertexCount,   setVertexCount]   = useState(0);
   const [vertexArms,    setVertexArms]    = useState([]);
 
-  const [status,  setStatus]  = useState({ type: 'warn', msg: 'Selecione um polígono e clique em Capturar' });
+  const [status,  setStatus]  = useState({ type:'warn', msg:'Selecione um polígono e clique em Capturar' });
   const [logs,    setLogs]    = useState([]);
   const [running, setRunning] = useState(false);
 
-  const log = useCallback((msg, type = 'ok') => {
-    const t = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const log = useCallback((msg, type='ok') => {
+    const t = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     setLogs(prev => [...prev.slice(-50), { msg, type, t }]);
   }, []);
 
-  // ── Capture selection (manual button — most reliable in iframe) ──────────
+  // ── Recompute vertex arms whenever base or chamfer size changes ────────────
+  useEffect(() => {
+    const base = offsetFeature || srcFeature;
+    if (!base) { setBaseMRing(null); setVertexArms([]); setVertexCount(0); return; }
+    const ring   = base.geometry.coordinates[0];
+    const origin = ring[0];
+    const scale  = degPerMetre(avgLat(ring));
+    const mRing  = ring.map(c => toMetric(c, origin, scale));
+    const n      = mRing.length - 1;
+    const half   = parseFloat(chamferSize) / 2;
+    const arms   = isNaN(half) || half <= 0
+      ? Array(n).fill(false)
+      : Array.from({ length: n }, (_, i) => vertexCanChamfer(mRing, i, half));
+    setBaseMRing(mRing);
+    setVertexCount(n);
+    setVertexArms(arms);
+    setSelectedVerts(prev => prev.filter(i => i < n && arms[i]));
+  }, [offsetFeature, srcFeature, chamferSize]);
+
+  // ── Capture ───────────────────────────────────────────────────────────────
   const captureSelection = useCallback(async () => {
     log('Lendo seleção…', 'dim');
     try {
       const result = await rpc.invoke('getSelectedFeatures', []);
-      log('Raw result: ' + JSON.stringify(result).slice(0, 200), 'dim');
-
-      // result can be: array, FeatureCollection, single feature, or null
       let candidates = [];
-      if (!result) {
-        candidates = [];
-      } else if (Array.isArray(result)) {
-        candidates = result;
-      } else if (result.type === 'FeatureCollection' && result.features) {
-        candidates = result.features;
-      } else if (result.type === 'Feature') {
-        candidates = [result];
-      } else {
-        // might be a single raw section object
-        candidates = [result];
-      }
+      if (!result)                                          candidates = [];
+      else if (Array.isArray(result))                       candidates = result;
+      else if (result.type==='FeatureCollection')           candidates = result.features||[];
+      else                                                  candidates = [result];
 
-      if (candidates.length === 0) {
-        setStatus({ type: 'warn', msg: 'Nenhuma feature selecionada no mapa' });
-        log('Nenhuma feature encontrada na seleção', 'warn');
-        return;
+      if (!candidates.length) {
+        setStatus({ type:'warn', msg:'Nenhuma feature selecionada' });
+        log('Seleção vazia', 'warn'); return;
       }
-
-      // Try to extract a valid polygon from each candidate
       let found = null;
-      for (const raw of candidates) {
-        const poly = extractPolygon(raw);
-        if (poly) { found = poly; break; }
-      }
-
+      for (const raw of candidates) { found = extractPolygon(raw); if (found) break; }
       if (!found) {
-        setStatus({ type: 'err', msg: 'Feature selecionada não é um polígono válido' });
-        log('Não foi possível converter para polígono. Tipo recebido: ' + (candidates[0]?.geometry?.type || Object.keys(candidates[0] || {}).join(', ')), 'err');
-        return;
+        setStatus({ type:'err', msg:'Feature não é um polígono válido' });
+        log('Tipo recebido: ' + candidates[0]?.geometry?.type, 'err'); return;
       }
-
       const n = found.geometry.coordinates[0].length - 1;
       setSrcFeature(found);
       setOffsetFeature(null);
       setSelectedVerts([]);
-      setStatus({ type: 'ok', msg: `Polígono capturado · ${n} vértices` });
-      log(`Polígono capturado com ${n} vértices`);
-    } catch (e) {
+      setStatus({ type:'ok', msg:`Polígono capturado · ${n} vértices` });
+      log(`Capturado: ${n} vértices`);
+    } catch(e) {
       log('Erro: ' + e.message, 'err');
-      setStatus({ type: 'err', msg: 'Erro ao ler seleção: ' + e.message });
+      setStatus({ type:'err', msg:'Erro ao ler seleção' });
     }
   }, [log]);
 
-  // ── Also listen passively via rawSections (desenhos do usuário) ──────────
-  useEffect(() => {
-    const update = () => {
-      const sections = giraffeState.get('rawSections');
-      if (!sections || !sections.features || sections.features.length === 0) return;
-      // Only auto-capture if nothing is loaded yet
-      // (Don't auto-override — let the button be explicit)
-    };
-    giraffeState.addListener(['rawSections'], update);
-    return () => giraffeState.removeListener(['rawSections'], update);
-  }, []);
-
-  // ── Recompute vertex arms ────────────────────────────────────────────────
-  useEffect(() => {
-    const base = offsetFeature || srcFeature;
-    if (!base) { setVertexArms([]); setVertexCount(0); return; }
-    const ring = base.geometry.coordinates[0];
-    const n = ring.length - 1;
-    const half = parseFloat(chamferSize) / 2;
-    if (isNaN(half) || half <= 0) { setVertexArms(Array(n).fill(false)); setVertexCount(n); return; }
-    const arms = Array.from({ length: n }, (_, i) => chamferVertex(ring, i, half) !== null);
-    setVertexArms(arms);
-    setVertexCount(n);
-    setSelectedVerts(prev => prev.filter(i => i < n && arms[i]));
-  }, [offsetFeature, srcFeature, chamferSize]);
-
-  // ── Step 1: Apply Offset ─────────────────────────────────────────────────
+  // ── Apply Offset ──────────────────────────────────────────────────────────
   const applyOffset = useCallback(async () => {
     if (!srcFeature) return;
     const dist = parseFloat(offsetDist);
-    if (isNaN(dist) || dist <= 0) { log('Distância de offset inválida', 'err'); return; }
-    const signedDist = offsetDir === 'inward' ? -dist : dist;
-    log(`Calculando offset ${offsetDir === 'inward' ? '-' : '+'}${dist}m…`);
+    if (isNaN(dist) || dist <= 0) { log('Distância inválida','err'); return; }
+    const d = offsetDir === 'inward' ? -dist : dist;
+    log(`Calculando offset ${d > 0 ? '+' : ''}${d}m…`);
     try {
-      const result = offsetPolygon(srcFeature, signedDist);
-      if (!result || !result.geometry) {
-        log('Offset resultou em geometria inválida — polígono pode ser muito pequeno', 'err');
-        return;
-      }
+      const result = offsetPolygon(srcFeature, d);
+      if (!result) { log('Offset inválido — polígono muito pequeno?','err'); return; }
       setOffsetFeature(result);
       setSelectedVerts([]);
-      const fc = {
-        type: 'FeatureCollection',
-        features: [{ ...result, properties: { ...result.properties, color: '#f5a623', stroke: '#f5a623', strokeWidth: 2, fillOpacity: 0.1 } }]
-      };
+      const fc = { type:'FeatureCollection', features:[{
+        ...result,
+        properties:{ ...result.properties, color:'#f5a623', stroke:'#f5a623', strokeWidth:2, fillOpacity:0.08 }
+      }]};
       await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_OFFSET, fc]);
       const n = result.geometry.coordinates[0].length - 1;
-      log(`Offset aplicado — ${n} vértices`);
-      setStatus({ type: 'ok', msg: `Offset ${dist}m aplicado · ${n} vértices` });
-    } catch (e) {
-      log('Erro no offset: ' + e.message, 'err');
-    }
+      log(`Offset aplicado: ${n} vértices`);
+      setStatus({ type:'ok', msg:`Offset ${dist}m aplicado · ${n} vértices` });
+    } catch(e) { log('Erro offset: '+e.message,'err'); }
   }, [srcFeature, offsetDist, offsetDir, log]);
 
   // ── Preview Chamfer ───────────────────────────────────────────────────────
   const previewChamfer = useCallback(async () => {
     const base = offsetFeature || srcFeature;
     if (!base) return;
-    const half = parseFloat(chamferSize) / 2;
-    if (isNaN(half) || half <= 0) return;
+    const size = parseFloat(chamferSize);
+    if (isNaN(size) || size <= 0) return;
     try {
-      const indices = vertexMode === 'select' && selectedVerts.length > 0 ? selectedVerts : null;
-      const chamfered = chamferFeature(base, half, indices);
-      const fc = {
-        type: 'FeatureCollection',
-        features: [{ ...chamfered, properties: { ...chamfered.properties, color: '#00ACCD', stroke: '#00ACCD', strokeWidth: 2, fillOpacity: 0.1 } }]
-      };
+      const indices = vertexMode==='select' && selectedVerts.length>0 ? selectedVerts : null;
+      const chamfered = chamferFeature(base, size, indices);
+      const fc = { type:'FeatureCollection', features:[{
+        ...chamfered,
+        properties:{ ...chamfered.properties, color:'#00ACCD', stroke:'#00ACCD', strokeWidth:2, fillOpacity:0.1 }
+      }]};
       await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_CHAMFER, fc]);
-    } catch (e) {
-      log('Erro preview chanfro: ' + e.message, 'err');
-    }
+    } catch(e) { log('Erro preview: '+e.message,'err'); }
   }, [offsetFeature, srcFeature, chamferSize, vertexMode, selectedVerts, log]);
 
   // Auto-preview
@@ -434,244 +437,229 @@ function App() {
     if (offsetFeature || srcFeature) previewChamfer();
   }, [chamferSize, selectedVerts, vertexMode, offsetFeature, srcFeature]);
 
-  // ── Final Apply ───────────────────────────────────────────────────────────
+  // ── Final apply ───────────────────────────────────────────────────────────
   const applyFinal = useCallback(async () => {
     const base = offsetFeature || srcFeature;
     if (!base) return;
-    const half = parseFloat(chamferSize) / 2;
-    if (isNaN(half) || half <= 0) { log('Tamanho do chanfro inválido', 'err'); return; }
+    const size = parseFloat(chamferSize);
+    if (isNaN(size) || size <= 0) { log('Chanfro inválido','err'); return; }
     setRunning(true);
     log('Salvando resultado…');
     try {
-      const indices = vertexMode === 'select' && selectedVerts.length > 0 ? selectedVerts : null;
-      const chamfered = chamferFeature(base, half, indices);
-      const offDist = parseFloat(offsetDist);
-      const layerName = `Offset ${offDist}m + Chanfro ${parseFloat(chamferSize)}m`;
+      const indices = vertexMode==='select' && selectedVerts.length>0 ? selectedVerts : null;
+      const chamfered = chamferFeature(base, size, indices);
+      const offD = parseFloat(offsetDist);
+      const layerName = `Offset ${offD}m + Chanfro ${size}m`;
+      const fc = { type:'FeatureCollection', features:[chamfered] };
       try {
-        const fc = { type: 'FeatureCollection', features: [chamfered] };
-        await rpc.invoke('createGeoJSONLayer', [{ name: layerName, geojson: fc }]);
+        await rpc.invoke('createGeoJSONLayer', [{ name:layerName, geojson:fc }]);
         log(`Camada "${layerName}" criada!`);
       } catch {
-        const fc = { type: 'FeatureCollection', features: [{ ...chamfered, properties: { ...chamfered.properties, color: '#00ACCD', stroke: '#00ACCD', strokeWidth: 2 } }] };
-        await rpc.invoke('addTempLayerGeoJSON', [layerName, fc]);
-        log(`Camada temporária "${layerName}" criada`, 'warn');
+        const fcColored = { type:'FeatureCollection', features:[{
+          ...chamfered,
+          properties:{ ...chamfered.properties, color:'#00ACCD', stroke:'#00ACCD', strokeWidth:2 }
+        }]};
+        await rpc.invoke('addTempLayerGeoJSON', [layerName, fcColored]);
+        log(`Camada temporária "${layerName}" criada`,'warn');
       }
-      setStatus({ type: 'ok', msg: 'Resultado criado com sucesso!' });
-      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_OFFSET,  { type: 'FeatureCollection', features: [] }]);
-      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_CHAMFER, { type: 'FeatureCollection', features: [] }]);
-    } catch (e) {
-      log('Falha: ' + e.message, 'err');
-      setStatus({ type: 'err', msg: 'Erro ao salvar' });
-    } finally {
-      setRunning(false);
-    }
+      setStatus({ type:'ok', msg:'Resultado criado!' });
+      await rpc.invoke('addTempLayerGeoJSON',[PREVIEW_OFFSET,  {type:'FeatureCollection',features:[]}]);
+      await rpc.invoke('addTempLayerGeoJSON',[PREVIEW_CHAMFER, {type:'FeatureCollection',features:[]}]);
+    } catch(e) {
+      log('Falha: '+e.message,'err');
+      setStatus({ type:'err', msg:'Erro ao salvar' });
+    } finally { setRunning(false); }
   }, [offsetFeature, srcFeature, chamferSize, offsetDist, vertexMode, selectedVerts, log]);
 
   const clearAll = useCallback(async () => {
     try {
-      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_OFFSET,  { type: 'FeatureCollection', features: [] }]);
-      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_CHAMFER, { type: 'FeatureCollection', features: [] }]);
-      setOffsetFeature(null);
-      setSelectedVerts([]);
+      await rpc.invoke('addTempLayerGeoJSON',[PREVIEW_OFFSET,  {type:'FeatureCollection',features:[]}]);
+      await rpc.invoke('addTempLayerGeoJSON',[PREVIEW_CHAMFER, {type:'FeatureCollection',features:[]}]);
+      setOffsetFeature(null); setSelectedVerts([]);
       log('Previews limpos');
     } catch {}
   }, [log]);
 
-  // ── Derived ──────────────────────────────────────────────────────────────
-  const offDist    = parseFloat(offsetDist);
-  const chamfNum   = parseFloat(chamferSize);
-  const half       = chamfNum / 2;
-  const offValid   = !isNaN(offDist) && offDist > 0;
-  const chamfValid = !isNaN(chamfNum) && chamfNum > 0 && chamfNum < 100;
-  const hasBase    = !!srcFeature;
-  const hasOffset  = !!offsetFeature;
-  const canFinal   = hasBase && chamfValid && !running;
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const offDist   = parseFloat(offsetDist);
+  const chamfNum  = parseFloat(chamferSize);
+  const offValid  = !isNaN(offDist) && offDist > 0;
+  const chamfValid= !isNaN(chamfNum) && chamfNum > 0;
+  const hasBase   = !!srcFeature;
+  const hasOffset = !!offsetFeature;
+  const canFinal  = hasBase && chamfValid && !running;
 
-  const activeVerts = vertexMode === 'all'
+  const activeVerts = vertexMode==='all'
     ? vertexArms.filter(Boolean).length
     : selectedVerts.filter(i => vertexArms[i]).length;
 
   const toggleVert = i => {
     if (!vertexArms[i]) return;
-    setSelectedVerts(prev => prev.includes(i) ? prev.filter(v => v !== i) : [...prev, i]);
+    setSelectedVerts(prev => prev.includes(i) ? prev.filter(v=>v!==i) : [...prev,i]);
   };
   const toggleAll = () => {
-    const avail = vertexArms.map((ok, i) => ok ? i : -1).filter(i => i >= 0);
-    setSelectedVerts(prev => prev.length === avail.length ? [] : avail);
+    const avail = vertexArms.map((ok,i) => ok?i:-1).filter(i=>i>=0);
+    setSelectedVerts(prev => prev.length===avail.length ? [] : avail);
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
-  return h('div', { className: 'app' },
+  return h('div', { className:'app' },
 
-    // Header
-    h('div', { style: { textAlign: 'center', paddingTop: '4px' } },
-      h('div', { style: { fontSize: '17px', fontWeight: 600, color: '#dde3ee', letterSpacing: '-0.2px' } },
-        h('span', { style: { color: '#00ACCD' } }, '⬡ '), 'Offset + Chanfro'
+    h('div', { style:{ textAlign:'center', paddingTop:'4px' } },
+      h('div', { style:{ fontSize:'17px', fontWeight:600, color:'#dde3ee', letterSpacing:'-0.2px' } },
+        h('span', { style:{ color:'#00ACCD' } }, '⬡ '), 'Offset + Chanfro PMSP'
       ),
-      h('div', { style: { fontSize: '10px', color: '#2e3650', marginTop: '2px' } }, 'beta v4 · KV Arquitetos')
+      h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'2px' } }, 'beta v5 · KV Arquitetos')
     ),
 
-    // Status
-    h('div', { className: `status-bar ${status.type}` },
-      h('div', { className: 'status-dot' }),
+    h('div', { className:`status-bar ${status.type}` },
+      h('div', { className:'status-dot' }),
       h('span', null, status.msg)
     ),
 
-    // Pipeline
-    h('div', { className: 'pipeline' },
-      h('div', { className: `pipe-step ${hasBase ? (hasOffset ? 'done' : 'active') : ''}` }, 'Captura'),
-      h('div', { className: `pipe-step ${hasOffset ? 'done' : (hasBase && offValid ? 'active' : '')}` }, 'Offset'),
-      h('div', { className: `pipe-step ${chamfValid && hasBase ? 'active' : ''}` }, 'Chanfro'),
-      h('div', { className: 'pipe-step' }, 'Salvar')
+    h('div', { className:'pipeline' },
+      h('div', { className:`pipe-step ${hasBase?(hasOffset?'done':'active'):''}` }, 'Captura'),
+      h('div', { className:`pipe-step ${hasOffset?'done':(hasBase&&offValid?'active':'')}` }, 'Offset'),
+      h('div', { className:`pipe-step ${chamfValid&&hasBase?'active':''}` }, 'Chanfro'),
+      h('div', { className:'pipe-step' }, 'Salvar')
     ),
 
-    // ── STEP 0: Capturar ────────────────────────────────────────────────────
-    h('div', { className: 'panel' },
-      h('div', { className: 'panel-header' },
-        h('span', { className: `step-badge ${hasBase ? 'done' : ''}` }, hasBase ? '✓' : '0'),
+    // ── Step 0: Capturar ──────────────────────────────────────────────────
+    h('div', { className:'panel' },
+      h('div', { className:'panel-header' },
+        h('span', { className:`step-badge ${hasBase?'done':''}` }, hasBase?'✓':'0'),
         'Capturar Polígono'
       ),
-      h('div', { className: 'panel-body' },
-        h('p', { className: 'capture-hint' },
+      h('div', { className:'panel-body' },
+        h('p', { className:'capture-hint' },
           hasBase
-            ? `Polígono ativo: ${srcFeature.geometry.coordinates[0].length - 1} vértices. Clique abaixo para trocar.`
-            : 'Selecione um polígono no mapa e clique no botão.'
+            ? `Ativo: ${srcFeature.geometry.coordinates[0].length-1} vértices. Clique para trocar.`
+            : 'Selecione um polígono no mapa e clique abaixo.'
         ),
-        h('button', { className: 'btn-capture', onClick: captureSelection },
+        h('button', { className:'btn-capture', onClick:captureSelection },
           hasBase ? '↺ Recapturar seleção' : '⊙ Capturar polígono selecionado'
         )
       )
     ),
 
-    // ── STEP 1: Offset ──────────────────────────────────────────────────────
-    h('div', { className: 'panel' },
-      h('div', { className: 'panel-header' },
-        h('span', { className: `step-badge ${hasOffset ? 'done' : (!hasBase ? 'inactive' : '')}` }, hasOffset ? '✓' : '1'),
+    // ── Step 1: Offset ────────────────────────────────────────────────────
+    h('div', { className:'panel' },
+      h('div', { className:'panel-header' },
+        h('span', { className:`step-badge ${hasOffset?'done':(!hasBase?'inactive':'')}` }, hasOffset?'✓':'1'),
         'Offset do Polígono'
       ),
-      h('div', { className: 'panel-body' },
-
+      h('div', { className:'panel-body' },
         h('div', null,
-          h('span', { className: 'field-label' }, 'Distância'),
-          h('div', { className: 'input-row' },
-            h('input', { type: 'number', value: offsetDist, min: '0.1', max: '500', step: '0.5',
+          h('span', { className:'field-label' }, 'Distância'),
+          h('div', { className:'input-row' },
+            h('input', { type:'number', value:offsetDist, min:'0.1', max:'500', step:'0.5',
               onChange: e => { setOffsetDist(e.target.value); setOffsetFeature(null); }
             }),
-            h('span', { className: 'input-unit' }, 'm')
+            h('span', { className:'input-unit' }, 'm')
           )
         ),
-
         h('div', null,
-          h('span', { className: 'field-label' }, 'Direção'),
-          h('div', { className: 'tab-row' },
-            h('button', { className: `tab-btn ${offsetDir === 'inward' ? 'active' : ''}`,
-              onClick: () => { setOffsetDir('inward'); setOffsetFeature(null); }
+          h('span', { className:'field-label' }, 'Direção'),
+          h('div', { className:'tab-row' },
+            h('button', { className:`tab-btn ${offsetDir==='inward'?'active':''}`,
+              onClick:()=>{ setOffsetDir('inward'); setOffsetFeature(null); }
             }, '← Interno'),
-            h('button', { className: `tab-btn ${offsetDir === 'outward' ? 'active' : ''}`,
-              onClick: () => { setOffsetDir('outward'); setOffsetFeature(null); }
+            h('button', { className:`tab-btn ${offsetDir==='outward'?'active':''}`,
+              onClick:()=>{ setOffsetDir('outward'); setOffsetFeature(null); }
             }, 'Externo →')
           )
         ),
-
         h('button', {
-          className: 'btn-primary',
-          onClick: applyOffset,
-          disabled: !hasBase || !offValid,
-          style: hasOffset ? { background: '#007a8a' } : {}
-        }, hasOffset ? '✓ Offset aplicado — Recalcular' : 'Aplicar Offset'),
-
-        hasOffset && h('div', { style: { fontSize: '10px', color: '#3a4155', textAlign: 'center' } },
-          `Preview laranja no mapa · ${vertexCount} vértices disponíveis`
+          className:'btn-primary',
+          onClick:applyOffset,
+          disabled:!hasBase||!offValid,
+          style: hasOffset ? { background:'#007a8a' } : {}
+        }, hasOffset ? '✓ Recalcular Offset' : 'Aplicar Offset'),
+        hasOffset && h('div', { style:{ fontSize:'10px', color:'#3a4155', textAlign:'center' } },
+          `Preview laranja · ${vertexCount} vértices`
         )
       )
     ),
 
-    // ── STEP 2: Chanfro ─────────────────────────────────────────────────────
-    h('div', { className: 'panel' },
-      h('div', { className: 'panel-header' },
-        h('span', { className: `step-badge ${!hasBase ? 'inactive' : ''}` }, '2'),
+    // ── Step 2: Chanfro ───────────────────────────────────────────────────
+    h('div', { className:'panel' },
+      h('div', { className:'panel-header' },
+        h('span', { className:`step-badge ${!hasBase?'inactive':''}` }, '2'),
         'Chanfro nos Vértices'
       ),
-      h('div', { className: 'panel-body' },
-
+      h('div', { className:'panel-body' },
         h('div', null,
-          h('span', { className: 'field-label' }, 'Tamanho do chanfro'),
-          h('div', { className: 'input-row' },
-            h('input', { type: 'number', value: chamferSize, min: '0.1', max: '100', step: '0.1',
+          h('span', { className:'field-label' }, 'Tamanho total do chanfro'),
+          h('div', { className:'input-row' },
+            h('input', { type:'number', value:chamferSize, min:'0.1', max:'100', step:'0.1',
               onChange: e => setChamferSize(e.target.value)
             }),
-            h('span', { className: 'input-unit' }, 'm')
+            h('span', { className:'input-unit' }, 'm')
           ),
-          chamfValid && h('div', { className: 'field-hint' },
-            `Cada braço: ${half.toFixed(2)}m · Corte diagonal: ~${(half * Math.SQRT2).toFixed(2)}m`
+          chamfValid && h('div', { className:'field-hint' },
+            `Cada braço: ${(chamfNum/2).toFixed(2)}m a partir do vértice`
           )
         ),
-
-        h('hr', { className: 'divider' }),
-
-        h('span', { className: 'field-label' }, 'Vértices a chanfrar'),
-        h('div', { className: 'tab-row', style: { marginBottom: '8px' } },
-          h('button', { className: `tab-btn ${vertexMode === 'all' ? 'active' : ''}`,
-            onClick: () => setVertexMode('all')
+        h('hr', { className:'divider' }),
+        h('span', { className:'field-label' }, 'Vértices a chanfrar'),
+        h('div', { className:'tab-row', style:{ marginBottom:'8px' } },
+          h('button', { className:`tab-btn ${vertexMode==='all'?'active':''}`,
+            onClick:()=>setVertexMode('all')
           }, 'Todos'),
-          h('button', { className: `tab-btn ${vertexMode === 'select' ? 'active' : ''}`,
-            disabled: !hasBase,
-            onClick: () => setVertexMode('select')
+          h('button', { className:`tab-btn ${vertexMode==='select'?'active':''}`,
+            disabled:!hasBase,
+            onClick:()=>setVertexMode('select')
           }, 'Selecionar')
         ),
-
-        vertexMode === 'select' && hasBase && (
-          vertexCount === 0
-            ? h('div', { style: { fontSize: '11px', color: '#3a4155' } }, 'Aplique o offset primeiro.')
+        vertexMode==='select' && hasBase && (
+          vertexCount===0
+            ? h('div', { style:{ fontSize:'11px', color:'#3a4155' } }, 'Aplique o offset primeiro.')
             : h('div', null,
-                h('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center' } },
-                  h('span', { style: { fontSize: '10px', color: '#3a4155' } },
+                h('div', { style:{ display:'flex', justifyContent:'space-between', marginBottom:'6px', alignItems:'center' } },
+                  h('span', { style:{ fontSize:'10px', color:'#3a4155' } },
                     `${selectedVerts.length} / ${vertexArms.filter(Boolean).length} selecionados`
                   ),
-                  h('button', {
-                    onClick: toggleAll,
-                    style: { background: 'transparent', border: '1px solid #252838', borderRadius: '4px', padding: '2px 7px', color: '#55607a', fontSize: '10px', cursor: 'pointer' }
-                  }, selectedVerts.length === vertexArms.filter(Boolean).length ? 'Limpar' : 'Todos')
+                  h('button', { onClick:toggleAll, style:{ background:'transparent', border:'1px solid #252838', borderRadius:'4px', padding:'2px 7px', color:'#55607a', fontSize:'10px', cursor:'pointer' } },
+                    selectedVerts.length===vertexArms.filter(Boolean).length ? 'Limpar' : 'Todos'
+                  )
                 ),
-                h('div', { className: 'vertex-grid' },
-                  ...Array.from({ length: vertexCount }, (_, i) => {
+                h('div', { className:'vertex-grid' },
+                  ...Array.from({ length:vertexCount }, (_,i) => {
                     const avail = vertexArms[i];
                     const sel   = selectedVerts.includes(i);
                     return h('button', {
-                      key: i,
-                      className: `v-btn ${avail ? (sel ? 'selected' : 'available') : 'unavailable'}`,
-                      onClick: () => toggleVert(i),
-                      title: avail ? `Vértice ${i + 1}` : `V${i+1}: segmento curto demais para chanfro`
-                    }, `V${i + 1}`)
+                      key:i,
+                      className:`v-btn ${avail?(sel?'selected':'available'):'unavailable'}`,
+                      onClick:()=>toggleVert(i),
+                      title: avail ? `Vértice ${i+1}` : `V${i+1}: segmento curto demais`
+                    }, `V${i+1}`)
                   })
                 ),
-                h('div', { style: { fontSize: '10px', color: '#2e3650', marginTop: '5px' } },
-                  'Vértices desbotados = segmento menor que o chanfro'
+                h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'5px' } },
+                  'Desbotados = segmento menor que o chanfro'
                 )
               )
         ),
-
-        hasBase && chamfValid && h('div', { style: { fontSize: '11px', color: '#3a4155', paddingTop: '4px' } },
-          `Preview azul no mapa · ${activeVerts} vértice(s) chanfrado(s) · base: ${hasOffset ? 'polígono com offset' : 'polígono original'}`
+        hasBase && chamfValid && h('div', { style:{ fontSize:'11px', color:'#3a4155', paddingTop:'4px' } },
+          `Preview azul · ${activeVerts} vértice(s) · base: ${hasOffset?'polígono com offset':'original'}`
         )
       )
     ),
 
-    // ── Actions ─────────────────────────────────────────────────────────────
-    h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-      h('button', { className: 'btn-primary', onClick: applyFinal, disabled: !canFinal },
+    // ── Actions ───────────────────────────────────────────────────────────
+    h('div', { style:{ display:'flex', flexDirection:'column', gap:'6px' } },
+      h('button', { className:'btn-primary', onClick:applyFinal, disabled:!canFinal },
         running ? '⏳ Salvando…' : '✓ Gerar resultado final'
       ),
-      h('div', { style: { display: 'flex', gap: '6px' } },
-        h('button', { className: 'btn-secondary', onClick: previewChamfer, disabled: !canFinal }, 'Atualizar preview'),
-        h('button', { className: 'btn-secondary', onClick: clearAll, disabled: !hasBase }, 'Limpar previews')
+      h('div', { style:{ display:'flex', gap:'6px' } },
+        h('button', { className:'btn-secondary', onClick:previewChamfer, disabled:!canFinal }, 'Atualizar preview'),
+        h('button', { className:'btn-secondary', onClick:clearAll, disabled:!hasBase }, 'Limpar previews')
       )
     ),
 
-    // Log
-    logs.length > 0 && h('div', { className: 'log-box' },
-      ...logs.slice().reverse().map((l, i) =>
-        h('div', { key: i, className: `log-${l.type}` }, `${l.t}  ${l.msg}`)
+    logs.length>0 && h('div', { className:'log-box' },
+      ...logs.slice().reverse().map((l,i) =>
+        h('div', { key:i, className:`log-${l.type}` }, `${l.t}  ${l.msg}`)
       )
     )
   );
