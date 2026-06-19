@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Offset + Chanfro</title>
+<link href="https://fonts.googleapis.com/css2?family=Hind:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18",
+    "react-dom/client": "https://esm.sh/react-dom@18/client",
+    "@gi-nx/iframe-sdk": "https://esm.sh/@gi-nx/iframe-sdk@latest",
+    "turf": "https://esm.sh/@turf/turf@6.5.0"
+  }
+}
+</script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Hind', sans-serif;
+  background: #0d0f18;
+  color: #dde3ee;
+  min-height: 100vh;
+  font-size: 13px;
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: #00ACCD33; border-radius: 2px; }
+
+/* Layout */
+.app { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Panels */
+.panel {
+  background: #161926;
+  border: 1px solid #252838;
+  border-radius: 9px;
+  overflow: hidden;
+}
+.panel-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid #252838;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: #55607a;
+}
+.panel-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+
+/* Step badge */
+.step-badge {
+  width: 18px; height: 18px;
+  background: #00ACCD22;
+  color: #00ACCD;
+  border-radius: 50%;
+  font-size: 10px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.step-badge.done { background: #00ACCD; color: #0d0f18; }
+.step-badge.inactive { background: #252838; color: #55607a; }
+
+/* Inputs */
+.field-label {
+  font-size: 11px; color: #55607a;
+  margin-bottom: 3px; display: block;
+}
+.input-row {
+  display: flex; align-items: center; gap: 6px;
+  background: #0d0f18;
+  border: 1px solid #252838;
+  border-radius: 6px;
+  padding: 6px 10px;
+  transition: border-color 0.15s;
+}
+.input-row:focus-within { border-color: #00ACCD55; }
+.input-row input {
+  background: transparent; border: none; outline: none;
+  color: #dde3ee; font-family: 'Hind', sans-serif;
+  font-size: 14px; width: 100%;
+}
+.input-unit { color: #444c66; font-size: 12px; white-space: nowrap; }
+.field-hint { font-size: 10px; color: #344; margin-top: 2px; }
+
+/* Toggle tabs */
+.tab-row { display: flex; gap: 4px; }
+.tab-btn {
+  flex: 1; padding: 6px 0;
+  border-radius: 6px;
+  border: 1px solid #252838;
+  background: transparent;
+  color: #55607a;
+  font-family: 'Hind', sans-serif;
+  font-size: 12px; font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.tab-btn:hover { border-color: #00ACCD44; color: #99b0c4; }
+.tab-btn.active {
+  background: #00ACCD18;
+  border-color: #00ACCD55;
+  color: #00ACCD;
+}
+
+/* Vertex grid */
+.vertex-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+.v-btn {
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid #252838;
+  background: #0d0f18;
+  color: #667;
+  font-family: monospace;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.1s;
+  line-height: 1;
+}
+.v-btn.available { color: #99b0c4; cursor: pointer; }
+.v-btn.available:hover { border-color: #00ACCD44; }
+.v-btn.selected { background: #00ACCD22; border-color: #00ACCD; color: #00ACCD; }
+.v-btn.unavailable { opacity: 0.3; cursor: default; }
+
+/* Buttons */
+.btn-primary {
+  background: #00ACCD; color: #0d0f18;
+  font-weight: 700; border: none; border-radius: 7px;
+  padding: 10px; cursor: pointer;
+  font-family: 'Hind', sans-serif; font-size: 13px;
+  width: 100%; transition: background 0.12s, transform 0.08s;
+}
+.btn-primary:hover { background: #00bde0; }
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { background: #1e2232; color: #3a4155; cursor: not-allowed; }
+.btn-secondary {
+  background: transparent; color: #00ACCD;
+  border: 1px solid #00ACCD33; border-radius: 7px;
+  padding: 8px; cursor: pointer;
+  font-family: 'Hind', sans-serif; font-size: 12px;
+  width: 100%; transition: all 0.12s;
+}
+.btn-secondary:hover { border-color: #00ACCD77; background: #00ACCD0a; }
+.btn-secondary:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* Status bar */
+.status-bar {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 11px; border-radius: 7px;
+  font-size: 11px; font-weight: 500;
+}
+.status-bar.ok  { background: #00ACCD12; border: 1px solid #00ACCD2a; color: #00ACCD; }
+.status-bar.warn { background: #f5a62312; border: 1px solid #f5a6232a; color: #f5a623; }
+.status-bar.err  { background: #f5555512; border: 1px solid #f555552a; color: #f56; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
+/* Info metric row */
+.metric-row {
+  display: flex; gap: 6px;
+}
+.metric {
+  flex: 1; background: #0d0f18; border: 1px solid #1e2232;
+  border-radius: 6px; padding: 6px 8px; text-align: center;
+}
+.metric-val { font-size: 14px; font-weight: 600; color: #00ACCD; }
+.metric-lbl { font-size: 9px; color: #3a4155; margin-top: 1px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Divider */
+.divider { border: none; border-top: 1px solid #1e2232; }
+
+/* Log */
+.log-box {
+  background: #090b12; border-radius: 6px;
+  padding: 7px 9px; font-size: 10px;
+  font-family: monospace; color: #3a6;
+  max-height: 72px; overflow-y: auto; line-height: 1.6;
+}
+.log-err { color: #f66; }
+.log-warn { color: #f5a623; }
+.log-ok { color: #00ACCD; }
+
+/* Pipeline visual */
+.pipeline {
+  display: flex; align-items: center; gap: 0;
+  background: #0d0f18; border: 1px solid #1e2232;
+  border-radius: 7px; overflow: hidden;
+}
+.pipe-step {
+  flex: 1; padding: 6px 4px; text-align: center;
+  font-size: 10px; color: #3a4155;
+  border-right: 1px solid #1e2232;
+  transition: all 0.15s;
+}
+.pipe-step:last-child { border-right: none; }
+.pipe-step.active { color: #00ACCD; background: #00ACCD0a; }
+.pipe-step.done { color: #009aaa; }
+.pipe-arrow { color: #1e2232; font-size: 10px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import { createRoot } from 'react-dom/client';
+import { createElement as h, useState, useEffect, useCallback, useRef } from 'react';
+import { giraffeState, rpc } from '@gi-nx/iframe-sdk';
+import * as turf from 'turf';
+
+// ─── Geometry: Offset ────────────────────────────────────────────────────────
+
+function offsetPolygon(feature, distanceMeters) {
+  // Turf's buffer with negative distance = inset (offset inward)
+  // For inward offset use negative value; outward use positive
+  const buffered = turf.buffer(feature, distanceMeters / 1000, { units: 'kilometers', steps: 1 });
+  if (!buffered) return null;
+  // buffer returns MultiPolygon sometimes — grab first polygon
+  if (buffered.geometry.type === 'MultiPolygon') {
+    return {
+      ...buffered,
+      geometry: { type: 'Polygon', coordinates: buffered.geometry.coordinates[0] }
+    };
+  }
+  return buffered;
+}
+
+// ─── Geometry: Chamfer ───────────────────────────────────────────────────────
+
+function segmentLength(A, B) {
+  return turf.length(turf.lineString([A, B]), { units: 'meters' });
+}
+
+function pointAlongSeg(A, B, distMeters) {
+  const total = segmentLength(A, B);
+  if (total < distMeters) return null;
+  const f = distMeters / total;
+  return [A[0] + (B[0] - A[0]) * f, A[1] + (B[1] - A[1]) * f];
+}
+
+function chamferVertex(ring, i, halfDist) {
+  const n = ring.length - 1;
+  const prev = ring[(i - 1 + n) % n];
+  const curr = ring[i];
+  const next = ring[(i + 1) % n];
+  const p1 = pointAlongSeg(curr, prev, halfDist);
+  const p2 = pointAlongSeg(curr, next, halfDist);
+  return (p1 && p2) ? [p1, p2] : null;
+}
+
+function applyRingChamfer(ring, halfDist, indexSet) {
+  const n = ring.length - 1;
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    if (!indexSet || indexSet.has(i)) {
+      const res = chamferVertex(ring, i, halfDist);
+      if (res) { out.push(res[0]); out.push(res[1]); continue; }
+    }
+    out.push(ring[i]);
+  }
+  out.push(out[0]);
+  return out;
+}
+
+function chamferFeature(feature, halfDist, selectedIndices) {
+  const indexSet = selectedIndices && selectedIndices.length > 0
+    ? new Set(selectedIndices) : null;
+  const newCoords = feature.geometry.coordinates.map((ring, ri) =>
+    ri === 0 ? applyRingChamfer(ring, halfDist, indexSet) : ring
+  );
+  return { ...feature, geometry: { type: 'Polygon', coordinates: newCoords } };
+}
+
+// ─── App ─────────────────────────────────────────────────────────────────────
+
+const PREVIEW_OFFSET   = '__oc_prev_offset__';
+const PREVIEW_CHAMFER  = '__oc_prev_chamfer__';
+
+function App() {
+  const [offsetDist, setOffsetDist]       = useState('5.00');
+  const [offsetDir, setOffsetDir]         = useState('inward'); // 'inward' | 'outward'
+  const [chamferSize, setChamferSize]     = useState('3.50');
+  const [vertexMode, setVertexMode]       = useState('all');    // 'all' | 'select'
+  const [selectedVerts, setSelectedVerts] = useState([]);
+
+  const [srcFeature, setSrcFeature]       = useState(null);   // original selected polygon
+  const [offsetFeature, setOffsetFeature] = useState(null);   // result after offset
+  const [vertexCount, setVertexCount]     = useState(0);
+  const [vertexArms, setVertexArms]       = useState([]);     // bool[] per vertex
+
+  const [status, setStatus] = useState({ type: 'warn', msg: 'Selecione um polígono no mapa' });
+  const [logs, setLogs]     = useState([]);
+  const [running, setRunning] = useState(false);
+
+  const log = useCallback((msg, type = 'ok') => {
+    const t = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setLogs(prev => [...prev.slice(-40), { msg, type, t }]);
+  }, []);
+
+  // ── Listen for selected feature ──────────────────────────────────────────
+  useEffect(() => {
+    const update = async () => {
+      try {
+        const features = await rpc.invoke('getSelectedFeatures', []);
+        if (!features || features.length === 0) {
+          setSrcFeature(null); setOffsetFeature(null);
+          setVertexCount(0); setVertexArms([]); setSelectedVerts([]);
+          setStatus({ type: 'warn', msg: 'Selecione um polígono no mapa' });
+          return;
+        }
+        const f = features[0];
+        if (!f.geometry || f.geometry.type !== 'Polygon') {
+          setSrcFeature(null);
+          setStatus({ type: 'err', msg: 'Feature selecionada não é um polígono' });
+          return;
+        }
+        setSrcFeature(f);
+        setOffsetFeature(null);
+        setSelectedVerts([]);
+        setStatus({ type: 'ok', msg: `Polígono selecionado · ${f.geometry.coordinates[0].length - 1} vértices` });
+        log(`Polígono lido: ${f.geometry.coordinates[0].length - 1} vértices`);
+      } catch (e) {
+        log('Erro ao ler seleção: ' + e.message, 'err');
+      }
+    };
+    giraffeState.addListener(['selectedFeatures'], update);
+    update();
+    return () => giraffeState.removeListener(['selectedFeatures'], update);
+  }, [log]);
+
+  // ── Recompute vertex arms when offset feature or chamfer size changes ────
+  useEffect(() => {
+    const base = offsetFeature || srcFeature;
+    if (!base) { setVertexArms([]); setVertexCount(0); return; }
+    const ring = base.geometry.coordinates[0];
+    const n = ring.length - 1;
+    const half = parseFloat(chamferSize) / 2;
+    const arms = Array.from({ length: n }, (_, i) => chamferVertex(ring, i, half) !== null);
+    setVertexArms(arms);
+    setVertexCount(n);
+    // Clear selected verts that are now invalid
+    setSelectedVerts(prev => prev.filter(i => i < n && arms[i]));
+  }, [offsetFeature, srcFeature, chamferSize]);
+
+  // ── Step 1: Apply Offset (preview) ───────────────────────────────────────
+  const applyOffset = useCallback(async (previewOnly = false) => {
+    if (!srcFeature) return;
+    const dist = parseFloat(offsetDist);
+    if (isNaN(dist) || dist <= 0) { log('Distância de offset inválida', 'err'); return; }
+
+    const signedDist = offsetDir === 'inward' ? -dist : dist;
+    log(`Calculando offset ${offsetDir === 'inward' ? '-' : '+'}${dist}m…`);
+
+    try {
+      const result = offsetPolygon(srcFeature, signedDist);
+      if (!result || !result.geometry) {
+        log('Offset resultou em geometria inválida (polígono muito pequeno?)', 'err');
+        return;
+      }
+
+      setOffsetFeature(result);
+      setSelectedVerts([]);
+
+      // Show in preview layer
+      const fc = {
+        type: 'FeatureCollection',
+        features: [{
+          ...result,
+          properties: {
+            ...result.properties,
+            color: '#f5a623',
+            stroke: '#f5a623',
+            strokeWidth: 1.5,
+            fillOpacity: 0.08
+          }
+        }]
+      };
+      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_OFFSET, fc]);
+      log(`Offset aplicado: ${dist}m ${offsetDir === 'inward' ? 'interno' : 'externo'}`);
+      setStatus({ type: 'ok', msg: `Offset ${dist}m aplicado — ${result.geometry.coordinates[0].length - 1} vértices` });
+    } catch (e) {
+      log('Erro no offset: ' + e.message, 'err');
+    }
+  }, [srcFeature, offsetDist, offsetDir, log]);
+
+  // ── Step 2: Preview Chamfer ───────────────────────────────────────────────
+  const previewChamfer = useCallback(async () => {
+    const base = offsetFeature || srcFeature;
+    if (!base) return;
+    const half = parseFloat(chamferSize) / 2;
+    if (isNaN(half) || half <= 0) return;
+
+    try {
+      const indices = vertexMode === 'select' && selectedVerts.length > 0 ? selectedVerts : null;
+      const chamfered = chamferFeature(base, half, indices);
+      const fc = {
+        type: 'FeatureCollection',
+        features: [{
+          ...chamfered,
+          properties: {
+            ...chamfered.properties,
+            color: '#00ACCD',
+            stroke: '#00ACCD',
+            strokeWidth: 2,
+            fillOpacity: 0.12
+          }
+        }]
+      };
+      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_CHAMFER, fc]);
+    } catch (e) {
+      log('Erro no preview do chanfro: ' + e.message, 'err');
+    }
+  }, [offsetFeature, srcFeature, chamferSize, vertexMode, selectedVerts, log]);
+
+  // Auto-preview chamfer when params change
+  useEffect(() => {
+    const base = offsetFeature || srcFeature;
+    if (base) previewChamfer();
+  }, [chamferSize, selectedVerts, vertexMode, offsetFeature, srcFeature]);
+
+  // ── Final Apply ───────────────────────────────────────────────────────────
+  const applyFinal = useCallback(async () => {
+    const base = offsetFeature || srcFeature;
+    if (!base) return;
+    const half = parseFloat(chamferSize) / 2;
+    if (isNaN(half) || half <= 0) { log('Tamanho do chanfro inválido', 'err'); return; }
+
+    setRunning(true);
+    log('Aplicando resultado final…');
+    try {
+      const indices = vertexMode === 'select' && selectedVerts.length > 0 ? selectedVerts : null;
+      const chamfered = chamferFeature(base, half, indices);
+      const offDist   = parseFloat(offsetDist);
+      const layerName = `Offset ${offDist}m + Chanfro ${parseFloat(chamferSize)}m`;
+
+      // Try createGeoJSONLayer first, fall back to addTempLayerGeoJSON
+      try {
+        const fc = { type: 'FeatureCollection', features: [chamfered] };
+        await rpc.invoke('createGeoJSONLayer', [{ name: layerName, geojson: fc }]);
+        log(`Camada "${layerName}" criada!`);
+      } catch {
+        const fc = {
+          type: 'FeatureCollection',
+          features: [{
+            ...chamfered,
+            properties: { ...chamfered.properties, color: '#00ACCD', stroke: '#00ACCD', strokeWidth: 2 }
+          }]
+        };
+        await rpc.invoke('addTempLayerGeoJSON', [layerName, fc]);
+        log(`Resultado salvo como camada temporária "${layerName}"`, 'warn');
+      }
+
+      setStatus({ type: 'ok', msg: 'Resultado criado com sucesso!' });
+
+      // Clear previews
+      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_OFFSET,  { type: 'FeatureCollection', features: [] }]);
+      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_CHAMFER, { type: 'FeatureCollection', features: [] }]);
+    } catch (e) {
+      log('Falha ao salvar: ' + e.message, 'err');
+      setStatus({ type: 'err', msg: 'Erro ao salvar resultado' });
+    } finally {
+      setRunning(false);
+    }
+  }, [offsetFeature, srcFeature, chamferSize, offsetDist, vertexMode, selectedVerts, log]);
+
+  const clearAll = useCallback(async () => {
+    try {
+      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_OFFSET,  { type: 'FeatureCollection', features: [] }]);
+      await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_CHAMFER, { type: 'FeatureCollection', features: [] }]);
+      setOffsetFeature(null);
+      setSelectedVerts([]);
+      log('Previews limpos');
+    } catch (e) {}
+  }, [log]);
+
+  // ── Derived state ─────────────────────────────────────────────────────────
+  const offDist     = parseFloat(offsetDist);
+  const chamfNum    = parseFloat(chamferSize);
+  const half        = chamfNum / 2;
+  const offValid    = !isNaN(offDist) && offDist > 0;
+  const chamfValid  = !isNaN(chamfNum) && chamfNum > 0 && chamfNum < 100;
+  const hasBase     = !!srcFeature;
+  const hasOffset   = !!offsetFeature;
+  const canFinal    = hasBase && chamfValid && !running;
+
+  const activeVerts = vertexMode === 'all'
+    ? vertexArms.filter(Boolean).length
+    : selectedVerts.filter(i => vertexArms[i]).length;
+
+  const toggleVert = i => {
+    if (!vertexArms[i]) return;
+    setSelectedVerts(prev =>
+      prev.includes(i) ? prev.filter(v => v !== i) : [...prev, i]
+    );
+  };
+
+  const toggleAllVerts = () => {
+    const available = vertexArms.map((ok, i) => ok ? i : -1).filter(i => i >= 0);
+    setSelectedVerts(prev =>
+      prev.length === available.length ? [] : available
+    );
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  return h('div', { className: 'app' },
+
+    // Header
+    h('div', { style: { textAlign: 'center', paddingTop: '4px' } },
+      h('div', { style: { fontSize: '17px', fontWeight: 600, color: '#dde3ee', letterSpacing: '-0.2px' } },
+        h('span', { style: { color: '#00ACCD' } }, '⬡ '), 'Offset + Chanfro'
+      ),
+      h('div', { style: { fontSize: '10px', color: '#2e3650', marginTop: '2px' } }, 'beta v1 · KV Arquitetos')
+    ),
+
+    // Status
+    h('div', { className: `status-bar ${status.type}` },
+      h('div', { className: 'status-dot' }),
+      h('span', null, status.msg)
+    ),
+
+    // Pipeline indicator
+    h('div', { className: 'pipeline' },
+      h('div', { className: `pipe-step ${hasBase ? (hasOffset ? 'done' : 'active') : ''}` }, 'Polígono'),
+      h('div', { className: 'pipe-step', style: { flex: 0, padding: '0 4px', color: '#1e2232' } }, '›'),
+      h('div', { className: `pipe-step ${offValid && hasBase ? (hasOffset ? 'done' : 'active') : ''}` }, 'Offset'),
+      h('div', { className: 'pipe-step', style: { flex: 0, padding: '0 4px', color: '#1e2232' } }, '›'),
+      h('div', { className: `pipe-step ${chamfValid && hasBase ? 'active' : ''}` }, 'Chanfro'),
+      h('div', { className: 'pipe-step', style: { flex: 0, padding: '0 4px', color: '#1e2232' } }, '›'),
+      h('div', { className: 'pipe-step' }, 'Resultado')
+    ),
+
+    // ── STEP 1: Offset ──────────────────────────────────────────────────────
+    h('div', { className: 'panel' },
+      h('div', { className: 'panel-header' },
+        h('span', { className: `step-badge ${hasOffset ? 'done' : hasBase ? '' : 'inactive'}` }, '1'),
+        'Offset do Polígono'
+      ),
+      h('div', { className: 'panel-body' },
+
+        // Distance
+        h('div', null,
+          h('span', { className: 'field-label' }, 'Distância'),
+          h('div', { className: 'input-row' },
+            h('input', {
+              type: 'number', value: offsetDist,
+              min: '0.1', max: '500', step: '0.5',
+              onChange: e => { setOffsetDist(e.target.value); setOffsetFeature(null); }
+            }),
+            h('span', { className: 'input-unit' }, 'm')
+          )
+        ),
+
+        // Direction tabs
+        h('div', null,
+          h('span', { className: 'field-label' }, 'Direção'),
+          h('div', { className: 'tab-row' },
+            h('button', {
+              className: `tab-btn ${offsetDir === 'inward' ? 'active' : ''}`,
+              onClick: () => { setOffsetDir('inward'); setOffsetFeature(null); }
+            }, '← Interno'),
+            h('button', {
+              className: `tab-btn ${offsetDir === 'outward' ? 'active' : ''}`,
+              onClick: () => { setOffsetDir('outward'); setOffsetFeature(null); }
+            }, 'Externo →')
+          )
+        ),
+
+        // Metrics
+        offValid && hasBase && h('div', { className: 'metric-row' },
+          h('div', { className: 'metric' },
+            h('div', { className: 'metric-val' }, `${offDist}m`),
+            h('div', { className: 'metric-lbl' }, offsetDir === 'inward' ? 'recuo' : 'avanço')
+          ),
+          h('div', { className: 'metric' },
+            h('div', { className: 'metric-val' }, hasOffset ? `${vertexCount}` : '—'),
+            h('div', { className: 'metric-lbl' }, 'vértices')
+          )
+        ),
+
+        h('button', {
+          className: 'btn-primary',
+          onClick: () => applyOffset(false),
+          disabled: !hasBase || !offValid,
+          style: hasOffset ? { background: '#009aaa' } : {}
+        }, hasOffset ? '✓ Offset aplicado — Recalcular' : 'Aplicar Offset e ver preview')
+      )
+    ),
+
+    // ── STEP 2: Chamfer ─────────────────────────────────────────────────────
+    h('div', { className: 'panel' },
+      h('div', { className: 'panel-header' },
+        h('span', { className: `step-badge ${!hasBase ? 'inactive' : ''}` }, '2'),
+        'Chanfro nos Vértices'
+      ),
+      h('div', { className: 'panel-body' },
+
+        // Chamfer size
+        h('div', null,
+          h('span', { className: 'field-label' }, 'Tamanho do chanfro'),
+          h('div', { className: 'input-row' },
+            h('input', {
+              type: 'number', value: chamferSize,
+              min: '0.1', max: '100', step: '0.1',
+              onChange: e => setChamferSize(e.target.value)
+            }),
+            h('span', { className: 'input-unit' }, 'm')
+          ),
+          chamfValid && h('div', { className: 'field-hint' },
+            `Cada braço: ${half.toFixed(2)}m · Corte: ~${(half * Math.SQRT2).toFixed(2)}m`
+          )
+        ),
+
+        h('hr', { className: 'divider' }),
+
+        // Vertex mode
+        h('span', { className: 'field-label' }, 'Vértices a chanfrar'),
+        h('div', { className: 'tab-row', style: { marginBottom: '8px' } },
+          h('button', {
+            className: `tab-btn ${vertexMode === 'all' ? 'active' : ''}`,
+            onClick: () => setVertexMode('all')
+          }, 'Todos'),
+          h('button', {
+            className: `tab-btn ${vertexMode === 'select' ? 'active' : ''}`,
+            disabled: !hasBase,
+            onClick: () => setVertexMode('select')
+          }, 'Selecionar')
+        ),
+
+        // Vertex picker
+        vertexMode === 'select' && hasBase && h('div', null,
+          vertexCount === 0
+            ? h('div', { style: { fontSize: '11px', color: '#3a4155' } }, 'Aplique o offset primeiro para atualizar os vértices.')
+            : h('div', null,
+                // Select all / none
+                h('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center' } },
+                  h('span', { style: { fontSize: '10px', color: '#3a4155' } },
+                    `${selectedVerts.length} de ${vertexArms.filter(Boolean).length} selecionados`
+                  ),
+                  h('div', { style: { display: 'flex', gap: '4px' } },
+                    h('button', {
+                      onClick: toggleAllVerts,
+                      style: {
+                        background: 'transparent', border: '1px solid #252838',
+                        borderRadius: '4px', padding: '2px 7px',
+                        color: '#55607a', fontSize: '10px', cursor: 'pointer'
+                      }
+                    }, selectedVerts.length === vertexArms.filter(Boolean).length ? 'Limpar' : 'Todos'),
+                  )
+                ),
+                h('div', { className: 'vertex-grid' },
+                  ...Array.from({ length: vertexCount }, (_, i) => {
+                    const avail   = vertexArms[i];
+                    const sel     = selectedVerts.includes(i);
+                    return h('button', {
+                      key: i,
+                      className: `v-btn ${avail ? (sel ? 'selected' : 'available') : 'unavailable'}`,
+                      onClick: () => toggleVert(i),
+                      title: avail ? `Vértice ${i + 1}` : `V${i+1}: segmento curto demais`
+                    }, `V${i + 1}`)
+                  })
+                ),
+                h('div', { style: { fontSize: '10px', color: '#2e3650', marginTop: '5px' } },
+                  'Vértices sem borda = segmento menor que o chanfro'
+                )
+              )
+        ),
+
+        // Summary
+        hasBase && chamfValid && h('div', { style: { fontSize: '11px', color: '#3a4155', paddingTop: '4px' } },
+          hasOffset
+            ? `Aplicando sobre polígono com offset · ${activeVerts} vértice(s) chanfrado(s)`
+            : `Aplicando sobre polígono original · ${activeVerts} vértice(s) chanfrado(s)`
+        )
+      )
+    ),
+
+    // ── Actions ─────────────────────────────────────────────────────────────
+    h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+      h('button', {
+        className: 'btn-primary',
+        onClick: applyFinal,
+        disabled: !canFinal
+      }, running ? '⏳ Gerando resultado…' : '✓ Gerar resultado final'),
+
+      h('div', { style: { display: 'flex', gap: '6px' } },
+        h('button', {
+          className: 'btn-secondary',
+          onClick: previewChamfer,
+          disabled: !canFinal
+        }, 'Atualizar preview'),
+        h('button', {
+          className: 'btn-secondary',
+          onClick: clearAll,
+          disabled: !hasBase
+        }, 'Limpar previews')
+      )
+    ),
+
+    // Log
+    logs.length > 0 && h('div', { className: 'log-box' },
+      ...logs.slice().reverse().map((l, i) =>
+        h('div', { key: i, className: `log-${l.type}` }, `${l.t}  ${l.msg}`)
+      )
+    ),
+
+    // Help
+    h('div', { className: 'panel' },
+      h('div', { className: 'panel-header' }, 'Como usar'),
+      h('div', { className: 'panel-body', style: { color: '#3a4155', gap: '4px', lineHeight: '1.55' } },
+        h('div', null, '1. Selecione o polígono no mapa'),
+        h('div', null, '2. Defina a distância de offset e clique em Aplicar Offset'),
+        h('div', null, '3. O preview laranja mostra o polígono recuado'),
+        h('div', null, '4. Escolha os vértices e tamanho do chanfro'),
+        h('div', null, '5. O preview azul mostra o resultado final'),
+        h('div', null, '6. Clique em Gerar resultado para salvar a camada'),
+        h('hr', { className: 'divider' }),
+        h('div', { style: { color: '#2e3650' } }, 'Se não tiver feito offset, o chanfro é aplicado diretamente no polígono original.')
+      )
+    )
+  );
+}
+
+createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>
