@@ -129,7 +129,7 @@ function lineIntersect(p1, d1, p2, d2) {
   return [p1[0]+t*d1[0], p1[1]+t*d1[1]];
 }
 
-// ── Ensure ring is CCW (positive area in metric space) ──────────────────────
+// ── Ring signed area (positive = CCW in standard math / screen-Y-down CW) ───
 function ringArea(mRing) {
   let area = 0;
   const n = mRing.length - 1;
@@ -140,143 +140,188 @@ function ringArea(mRing) {
   return area / 2;
 }
 
-// ── OFFSET POLYGON (perpendicular / miter, exact distance in metres) ─────────
-//
-// For each edge of the polygon ring, offset it perpendicularly inward/outward
-// by `distMeters`. Then intersect consecutive offset-edge lines to get the
-// new vertices. This is identical to a CAD miter offset.
-//
-// `distMeters` < 0 → inward for a CCW ring
-//               > 0 → outward for a CCW ring
+// ── OFFSET POLYGON ───────────────────────────────────────────────────────────
+// Perpendicular miter offset, exact distance in metres.
+// distMeters > 0 → expand (outward)
+// distMeters < 0 → shrink (inward)
+// Works regardless of ring orientation (CCW or CW).
 
 function offsetRingMetric(mRing, distMeters) {
-  // mRing: array of [x,y] in metres, closed (last === first)
   const n = mRing.length - 1;
   if (n < 3) return null;
 
-  // Ensure CCW; if CW, flip the effective sign
+  // GeoJSON rings from Giraffe come as CW (positive Y is north but lon/lat
+  // inversion means area < 0 in our metric space). We normalise: if ring is
+  // CW we flip the perpendicular direction so the semantics of
+  // distMeters > 0 = outward always holds.
   const area = ringArea(mRing);
-  const sign  = area > 0 ? 1 : -1;          // +1 if CCW
-  const d     = distMeters * sign;           // effective offset direction
+  // For a CW ring in our XY space, area < 0.
+  // Right-hand perp of edge direction points outward for CCW, inward for CW.
+  // We want distMeters > 0 = outward regardless, so:
+  const dirSign = area >= 0 ? 1 : -1;  // flip perp for CW rings
 
-  // For each edge, compute the offset line (point + direction)
   const offLines = [];
   for (let i = 0; i < n; i++) {
     const A = mRing[i];
     const B = mRing[(i+1) % n];
-    const edge = vecSub(B, A);
-    const edgeN = vecNorm(edge);
-    // Left-hand perpendicular (inward for CCW ring when d<0)
-    const perp = vecPerp(edgeN);             // 90° CCW = left of edge direction
-    // Offset point on edge A
-    const offPt = vecAdd(A, vecScale(perp, d));
+    const edgeN = vecNorm(vecSub(B, A));
+    // vecPerp = 90° CCW = left of travel = outward for CCW ring
+    const perp  = vecPerp(edgeN);
+    const offPt = vecAdd(A, vecScale(perp, distMeters * dirSign));
     offLines.push({ p: offPt, d: edgeN });
   }
 
-  // Intersect consecutive offset-lines to get new vertices
   const newRing = [];
   for (let i = 0; i < n; i++) {
     const cur  = offLines[i];
     const next = offLines[(i+1) % n];
     const pt   = lineIntersect(cur.p, cur.d, next.p, next.d);
-    newRing.push(pt || next.p);              // fallback: parallel edges
+    newRing.push(pt || next.p);
   }
-  newRing.push(newRing[0]);                  // close
+  newRing.push(newRing[0]);
   return newRing;
 }
 
+// Returns both the offset feature AND the raw metric rings (needed for chamfer)
 function offsetPolygon(feature, distMeters) {
   const ring   = feature.geometry.coordinates[0];
   const origin = ring[0];
   const scale  = degPerMetre(avgLat(ring));
-
-  // Convert to metric space
-  const mRing = ring.map(c => toMetric(c, origin, scale));
-
-  const mOff = offsetRingMetric(mRing, distMeters);
+  const mOrig  = ring.map(c => toMetric(c, origin, scale));
+  const mOff   = offsetRingMetric(mOrig, distMeters);
   if (!mOff) return null;
-
-  // Convert back to lon/lat
   const newCoords = mOff.map(xy => fromMetric(xy, origin, scale));
-  return { ...feature, geometry: { type: 'Polygon', coordinates: [newCoords] } };
+  return {
+    feature: { ...feature, geometry: { type:'Polygon', coordinates:[newCoords] } },
+    mOrig,   // metric original ring
+    mOff,    // metric offset ring
+    origin,
+    scale
+  };
 }
 
-// ── CHAMFER BY BISECTOR (PMSP rule) ─────────────────────────────────────────
+// ── CHAMFER — PMSP BISECTOR METHOD ───────────────────────────────────────────
 //
-// For each selected vertex of the OFFSET ring:
-//   1. The bisector direction = normalised sum of the two edge unit vectors
-//      pointing AWAY from the vertex (i.e. toward the adjacent vertices).
-//   2. Offset the bisector line ±(chamferSize/2) metres perpendicularly.
-//   3. Intersect each offset-bisector line with the two adjacent OFFSET edges.
-//   4. The two intersection points replace the vertex → the chamfer segment.
+// For each selected vertex i of the OFFSET ring:
 //
-// This is equivalent to: walk chamferSize/2 metres along each adjacent edge
-// from the vertex and connect those two points — which is the standard
-// symmetric chamfer definition and matches the PMSP diagram exactly.
+//  1. Take V_orig[i] (original ring) and V_off[i] (offset ring) —
+//     the "bisector line" is the line through these two points.
+//
+//  2. Compute the perpendicular direction to that bisector.
+//
+//  3. Offset the bisector line ±(chamferSize/2) metres perpendicularly
+//     → two parallel lines (the yellow lines in the diagram).
+//
+//  4. Intersect each parallel line with the two adjacent EDGES of the
+//     OFFSET ring → two intersection points.
+//
+//  5. Those two points are the endpoints of the chamfer segment (green line).
+//     They replace vertex i in the output ring.
 
-function chamferVertexPMSP(mRing, i, halfDist) {
-  const n    = mRing.length - 1;
-  const prev = mRing[(i - 1 + n) % n];
-  const curr = mRing[i];
-  const next = mRing[(i + 1) % n];
+function chamferVertexPMSP(mOrig, mOff, i, halfDist) {
+  const n = mOff.length - 1;
 
-  // Unit vectors from curr toward prev and toward next
-  const toPrev = vecNorm(vecSub(prev, curr));
-  const toNext = vecNorm(vecSub(next, curr));
+  const Vorig = mOrig[i % mOrig.length] || mOrig[i % (mOrig.length-1)];
+  const Voff  = mOff[i];
 
-  // Walk halfDist metres along each adjacent edge
-  const p1 = vecAdd(curr, vecScale(toPrev, halfDist));
-  const p2 = vecAdd(curr, vecScale(toNext, halfDist));
+  // Bisector direction: from V_orig toward V_off
+  const bisDir = vecNorm(vecSub(Voff, Vorig));
+  if (vecLen(bisDir) < 1e-12) return null; // coincident points
 
-  // Validate: both points must be within their respective segments
-  const segPrevLen = vecLen(vecSub(prev, curr));
-  const segNextLen = vecLen(vecSub(next, curr));
-  if (halfDist > segPrevLen || halfDist > segNextLen) return null;
+  // Perpendicular to bisector
+  const bisPerp = vecPerp(bisDir);
 
-  return [p1, p2];
+  // Two parallel lines offset ±halfDist from bisector, passing through V_off
+  const lineA_pt = vecAdd(Voff, vecScale(bisPerp,  halfDist));
+  const lineB_pt = vecAdd(Voff, vecScale(bisPerp, -halfDist));
+
+  // Adjacent edges of the OFFSET ring at vertex i
+  const prevIdx = (i - 1 + n) % n;
+  const nextIdx = (i + 1) % n;
+
+  const edgePrev_A  = mOff[prevIdx];
+  const edgePrev_B  = mOff[i];
+  const edgePrev_dir = vecNorm(vecSub(edgePrev_B, edgePrev_A));
+
+  const edgeNext_A  = mOff[i];
+  const edgeNext_B  = mOff[nextIdx];
+  const edgeNext_dir = vecNorm(vecSub(edgeNext_B, edgeNext_A));
+
+  // Intersect each parallel line with each adjacent edge (as infinite lines)
+  // We need: lineA ∩ edgePrev, lineB ∩ edgeNext (order depends on geometry)
+  // Try both combinations and pick the one where both points land between
+  // vertex i and the adjacent vertex (i.e. on the correct side)
+
+  const bisLineDir = bisDir; // same direction for both parallel lines
+
+  const ptA_prev = lineIntersect(lineA_pt, bisLineDir, edgePrev_A, edgePrev_dir);
+  const ptA_next = lineIntersect(lineA_pt, bisLineDir, edgeNext_A, edgeNext_dir);
+  const ptB_prev = lineIntersect(lineB_pt, bisLineDir, edgePrev_A, edgePrev_dir);
+  const ptB_next = lineIntersect(lineB_pt, bisLineDir, edgeNext_A, edgeNext_dir);
+
+  // Pick the pair where one point is on edgePrev and the other on edgeNext
+  // A valid point on edgePrev should be between prevIdx and i vertices
+  function onSegment(pt, segA, segB) {
+    if (!pt) return false;
+    const ab = vecSub(segB, segA);
+    const ap = vecSub(pt, segA);
+    const t  = vecDot(ap, ab) / (vecDot(ab, ab) + 1e-15);
+    return t >= -0.01 && t <= 1.01;
+  }
+
+  // Combination 1: lineA ∩ edgePrev + lineB ∩ edgeNext
+  if (ptA_prev && ptB_next &&
+      onSegment(ptA_prev, edgePrev_A, edgePrev_B) &&
+      onSegment(ptB_next, edgeNext_A, edgeNext_B)) {
+    return [ptA_prev, ptB_next];
+  }
+  // Combination 2: lineB ∩ edgePrev + lineA ∩ edgeNext
+  if (ptB_prev && ptA_next &&
+      onSegment(ptB_prev, edgePrev_A, edgePrev_B) &&
+      onSegment(ptA_next, edgeNext_A, edgeNext_B)) {
+    return [ptB_prev, ptA_next];
+  }
+  // Fallback: just walk halfDist along each edge (standard symmetric chamfer)
+  const toPrev = vecNorm(vecSub(mOff[(i-1+n)%n], mOff[i]));
+  const toNext = vecNorm(vecSub(mOff[(i+1)%n],   mOff[i]));
+  const segPL  = vecLen(vecSub(mOff[(i-1+n)%n], mOff[i]));
+  const segNL  = vecLen(vecSub(mOff[(i+1)%n],   mOff[i]));
+  if (halfDist > segPL || halfDist > segNL) return null;
+  return [
+    vecAdd(mOff[i], vecScale(toPrev, halfDist)),
+    vecAdd(mOff[i], vecScale(toNext, halfDist))
+  ];
 }
 
-function applyRingChamfer(mRing, halfDist, indexSet) {
-  const n   = mRing.length - 1;
+function applyRingChamfer(mOrig, mOff, halfDist, indexSet) {
+  const n   = mOff.length - 1;
   const out = [];
   for (let i = 0; i < n; i++) {
     if (!indexSet || indexSet.has(i)) {
-      const res = chamferVertexPMSP(mRing, i, halfDist);
-      if (res) {
-        out.push(res[0]);   // point on prev-edge arm
-        out.push(res[1]);   // point on next-edge arm
-        continue;
-      }
+      const res = chamferVertexPMSP(mOrig, mOff, i, halfDist);
+      if (res) { out.push(res[0]); out.push(res[1]); continue; }
     }
-    out.push(mRing[i]);
+    out.push(mOff[i]);
   }
   out.push(out[0]);
   return out;
 }
 
-function chamferFeature(feature, chamferMeters, selectedIndices) {
-  const ring   = feature.geometry.coordinates[0];
-  const origin = ring[0];
-  const scale  = degPerMetre(avgLat(ring));
-
-  const mRing  = ring.map(c => toMetric(c, origin, scale));
-  const half   = chamferMeters / 2;
+// Takes the original feature + the offsetResult from offsetPolygon()
+function chamferFeature(offsetResult, chamferMeters, selectedIndices) {
+  const { mOrig, mOff, origin, scale, feature } = offsetResult;
+  const half     = chamferMeters / 2;
   const indexSet = selectedIndices && selectedIndices.length > 0 ? new Set(selectedIndices) : null;
-
-  const mResult = applyRingChamfer(mRing, half, indexSet);
-  const coords  = mResult.map(xy => fromMetric(xy, origin, scale));
-
-  return { ...feature, geometry: { type: 'Polygon', coordinates: [coords] } };
+  const mResult  = applyRingChamfer(mOrig, mOff, half, indexSet);
+  const coords   = mResult.map(xy => fromMetric(xy, origin, scale));
+  return { ...feature, geometry: { type:'Polygon', coordinates:[coords] } };
 }
 
-// Check if a vertex CAN be chamfered (both adjacent segments long enough)
-function vertexCanChamfer(mRing, i, halfDist) {
-  const n    = mRing.length - 1;
-  const prev = mRing[(i - 1 + n) % n];
-  const curr = mRing[i];
-  const next = mRing[(i + 1) % n];
-  return vecLen(vecSub(prev, curr)) >= halfDist &&
-         vecLen(vecSub(next, curr)) >= halfDist;
+// Check if vertex i can be chamfered (both adjacent offset segments long enough)
+function vertexCanChamfer(mOff, i, halfDist) {
+  const n = mOff.length - 1;
+  return vecLen(vecSub(mOff[(i-1+n)%n], mOff[i])) >= halfDist &&
+         vecLen(vecSub(mOff[(i+1)%n],   mOff[i])) >= halfDist;
 }
 
 // ── EXTRACT POLYGON from raw Giraffe feature ─────────────────────────────────
@@ -325,9 +370,8 @@ function App() {
   const [selectedVerts, setSelectedVerts] = useState([]);
 
   const [srcFeature,    setSrcFeature]    = useState(null);
-  const [offsetFeature, setOffsetFeature] = useState(null);
-  // mRing of the current base (offset or src) in metric space — for arm checks
-  const [baseMRing,     setBaseMRing]     = useState(null);
+  // offsetResult = { feature, mOrig, mOff, origin, scale } | null
+  const [offsetResult,  setOffsetResult]  = useState(null);
   const [vertexCount,   setVertexCount]   = useState(0);
   const [vertexArms,    setVertexArms]    = useState([]);
 
@@ -340,24 +384,19 @@ function App() {
     setLogs(prev => [...prev.slice(-50), { msg, type, t }]);
   }, []);
 
-  // ── Recompute vertex arms whenever base or chamfer size changes ────────────
+  // ── Recompute vertex arms whenever offsetResult or chamfer size changes ────
   useEffect(() => {
-    const base = offsetFeature || srcFeature;
-    if (!base) { setBaseMRing(null); setVertexArms([]); setVertexCount(0); return; }
-    const ring   = base.geometry.coordinates[0];
-    const origin = ring[0];
-    const scale  = degPerMetre(avgLat(ring));
-    const mRing  = ring.map(c => toMetric(c, origin, scale));
-    const n      = mRing.length - 1;
-    const half   = parseFloat(chamferSize) / 2;
-    const arms   = isNaN(half) || half <= 0
+    if (!offsetResult) { setVertexArms([]); setVertexCount(0); return; }
+    const { mOff } = offsetResult;
+    const n    = mOff.length - 1;
+    const half = parseFloat(chamferSize) / 2;
+    const arms = isNaN(half) || half <= 0
       ? Array(n).fill(false)
-      : Array.from({ length: n }, (_, i) => vertexCanChamfer(mRing, i, half));
-    setBaseMRing(mRing);
+      : Array.from({ length: n }, (_, i) => vertexCanChamfer(mOff, i, half));
     setVertexCount(n);
     setVertexArms(arms);
     setSelectedVerts(prev => prev.filter(i => i < n && arms[i]));
-  }, [offsetFeature, srcFeature, chamferSize]);
+  }, [offsetResult, chamferSize]);
 
   // ── Capture ───────────────────────────────────────────────────────────────
   const captureSelection = useCallback(async () => {
@@ -365,10 +404,10 @@ function App() {
     try {
       const result = await rpc.invoke('getSelectedFeatures', []);
       let candidates = [];
-      if (!result)                                          candidates = [];
-      else if (Array.isArray(result))                       candidates = result;
-      else if (result.type==='FeatureCollection')           candidates = result.features||[];
-      else                                                  candidates = [result];
+      if (!result)                                candidates = [];
+      else if (Array.isArray(result))             candidates = result;
+      else if (result.type==='FeatureCollection') candidates = result.features||[];
+      else                                        candidates = [result];
 
       if (!candidates.length) {
         setStatus({ type:'warn', msg:'Nenhuma feature selecionada' });
@@ -382,7 +421,7 @@ function App() {
       }
       const n = found.geometry.coordinates[0].length - 1;
       setSrcFeature(found);
-      setOffsetFeature(null);
+      setOffsetResult(null);
       setSelectedVerts([]);
       setStatus({ type:'ok', msg:`Polígono capturado · ${n} vértices` });
       log(`Capturado: ${n} vértices`);
@@ -397,19 +436,20 @@ function App() {
     if (!srcFeature) return;
     const dist = parseFloat(offsetDist);
     if (isNaN(dist) || dist <= 0) { log('Distância inválida','err'); return; }
+    // inward = shrink = negative outward
     const d = offsetDir === 'inward' ? -dist : dist;
     log(`Calculando offset ${d > 0 ? '+' : ''}${d}m…`);
     try {
       const result = offsetPolygon(srcFeature, d);
       if (!result) { log('Offset inválido — polígono muito pequeno?','err'); return; }
-      setOffsetFeature(result);
+      setOffsetResult(result);
       setSelectedVerts([]);
       const fc = { type:'FeatureCollection', features:[{
-        ...result,
-        properties:{ ...result.properties, color:'#f5a623', stroke:'#f5a623', strokeWidth:2, fillOpacity:0.08 }
+        ...result.feature,
+        properties:{ ...result.feature.properties, color:'#f5a623', stroke:'#f5a623', strokeWidth:2, fillOpacity:0.08 }
       }]};
       await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_OFFSET, fc]);
-      const n = result.geometry.coordinates[0].length - 1;
+      const n = result.feature.geometry.coordinates[0].length - 1;
       log(`Offset aplicado: ${n} vértices`);
       setStatus({ type:'ok', msg:`Offset ${dist}m aplicado · ${n} vértices` });
     } catch(e) { log('Erro offset: '+e.message,'err'); }
@@ -417,37 +457,35 @@ function App() {
 
   // ── Preview Chamfer ───────────────────────────────────────────────────────
   const previewChamfer = useCallback(async () => {
-    const base = offsetFeature || srcFeature;
-    if (!base) return;
+    if (!offsetResult) return;
     const size = parseFloat(chamferSize);
     if (isNaN(size) || size <= 0) return;
     try {
       const indices = vertexMode==='select' && selectedVerts.length>0 ? selectedVerts : null;
-      const chamfered = chamferFeature(base, size, indices);
+      const chamfered = chamferFeature(offsetResult, size, indices);
       const fc = { type:'FeatureCollection', features:[{
         ...chamfered,
         properties:{ ...chamfered.properties, color:'#00ACCD', stroke:'#00ACCD', strokeWidth:2, fillOpacity:0.1 }
       }]};
       await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_CHAMFER, fc]);
     } catch(e) { log('Erro preview: '+e.message,'err'); }
-  }, [offsetFeature, srcFeature, chamferSize, vertexMode, selectedVerts, log]);
+  }, [offsetResult, chamferSize, vertexMode, selectedVerts, log]);
 
-  // Auto-preview
+  // Auto-preview chamfer when params change (only if offset was applied)
   useEffect(() => {
-    if (offsetFeature || srcFeature) previewChamfer();
-  }, [chamferSize, selectedVerts, vertexMode, offsetFeature, srcFeature]);
+    if (offsetResult) previewChamfer();
+  }, [chamferSize, selectedVerts, vertexMode, offsetResult]);
 
   // ── Final apply ───────────────────────────────────────────────────────────
   const applyFinal = useCallback(async () => {
-    const base = offsetFeature || srcFeature;
-    if (!base) return;
+    if (!offsetResult) { log('Aplique o offset primeiro','warn'); return; }
     const size = parseFloat(chamferSize);
     if (isNaN(size) || size <= 0) { log('Chanfro inválido','err'); return; }
     setRunning(true);
     log('Salvando resultado…');
     try {
       const indices = vertexMode==='select' && selectedVerts.length>0 ? selectedVerts : null;
-      const chamfered = chamferFeature(base, size, indices);
+      const chamfered = chamferFeature(offsetResult, size, indices);
       const offD = parseFloat(offsetDist);
       const layerName = `Offset ${offD}m + Chanfro ${size}m`;
       const fc = { type:'FeatureCollection', features:[chamfered] };
@@ -469,25 +507,25 @@ function App() {
       log('Falha: '+e.message,'err');
       setStatus({ type:'err', msg:'Erro ao salvar' });
     } finally { setRunning(false); }
-  }, [offsetFeature, srcFeature, chamferSize, offsetDist, vertexMode, selectedVerts, log]);
+  }, [offsetResult, chamferSize, offsetDist, vertexMode, selectedVerts, log]);
 
   const clearAll = useCallback(async () => {
     try {
       await rpc.invoke('addTempLayerGeoJSON',[PREVIEW_OFFSET,  {type:'FeatureCollection',features:[]}]);
       await rpc.invoke('addTempLayerGeoJSON',[PREVIEW_CHAMFER, {type:'FeatureCollection',features:[]}]);
-      setOffsetFeature(null); setSelectedVerts([]);
+      setOffsetResult(null); setSelectedVerts([]);
       log('Previews limpos');
     } catch {}
   }, [log]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const offDist   = parseFloat(offsetDist);
-  const chamfNum  = parseFloat(chamferSize);
-  const offValid  = !isNaN(offDist) && offDist > 0;
-  const chamfValid= !isNaN(chamfNum) && chamfNum > 0;
-  const hasBase   = !!srcFeature;
-  const hasOffset = !!offsetFeature;
-  const canFinal  = hasBase && chamfValid && !running;
+  const offDist    = parseFloat(offsetDist);
+  const chamfNum   = parseFloat(chamferSize);
+  const offValid   = !isNaN(offDist) && offDist > 0;
+  const chamfValid = !isNaN(chamfNum) && chamfNum > 0;
+  const hasBase    = !!srcFeature;
+  const hasOffset  = !!offsetResult;
+  const canFinal   = hasOffset && chamfValid && !running;
 
   const activeVerts = vertexMode==='all'
     ? vertexArms.filter(Boolean).length
@@ -498,7 +536,7 @@ function App() {
     setSelectedVerts(prev => prev.includes(i) ? prev.filter(v=>v!==i) : [...prev,i]);
   };
   const toggleAll = () => {
-    const avail = vertexArms.map((ok,i) => ok?i:-1).filter(i=>i>=0);
+    const avail = vertexArms.map((ok,i)=>ok?i:-1).filter(i=>i>=0);
     setSelectedVerts(prev => prev.length===avail.length ? [] : avail);
   };
 
@@ -509,7 +547,7 @@ function App() {
       h('div', { style:{ fontSize:'17px', fontWeight:600, color:'#dde3ee', letterSpacing:'-0.2px' } },
         h('span', { style:{ color:'#00ACCD' } }, '⬡ '), 'Offset + Chanfro PMSP'
       ),
-      h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'2px' } }, 'beta v5 · KV Arquitetos')
+      h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'2px' } }, 'beta v6 · KV Arquitetos')
     ),
 
     h('div', { className:`status-bar ${status.type}` },
@@ -576,7 +614,7 @@ function App() {
           style: hasOffset ? { background:'#007a8a' } : {}
         }, hasOffset ? '✓ Recalcular Offset' : 'Aplicar Offset'),
         hasOffset && h('div', { style:{ fontSize:'10px', color:'#3a4155', textAlign:'center' } },
-          `Preview laranja · ${vertexCount} vértices`
+          `Preview laranja · ${offsetResult.feature.geometry.coordinates[0].length - 1} vértices`
         )
       )
     ),
@@ -640,8 +678,11 @@ function App() {
                 )
               )
         ),
-        hasBase && chamfValid && h('div', { style:{ fontSize:'11px', color:'#3a4155', paddingTop:'4px' } },
-          `Preview azul · ${activeVerts} vértice(s) · base: ${hasOffset?'polígono com offset':'original'}`
+        hasOffset && chamfValid && h('div', { style:{ fontSize:'11px', color:'#3a4155', paddingTop:'4px' } },
+          `Preview azul · ${activeVerts} vértice(s) chanfrado(s)`
+        ),
+        !hasOffset && h('div', { style:{ fontSize:'11px', color:'#f5a62388', paddingTop:'4px' } },
+          'Aplique o offset primeiro para habilitar o chanfro.'
         )
       )
     ),
