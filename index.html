@@ -198,10 +198,46 @@ function offsetPolygon(feature, distMeters) {
   const newCoords = mOff.map(xy => fromMetric(xy, origin, scale));
   return {
     feature: { ...feature, geometry: { type:'Polygon', coordinates:[newCoords] } },
-    mOrig,
-    mOff,
-    origin,
-    scale
+    mOrig, mOff, origin, scale, isOpen: false
+  };
+}
+
+// ── OFFSET OPEN POLYLINE ──────────────────────────────────────────────────────
+// For each segment, computes the parallel offset line.
+// At interior vertices: miter intersection (same as polygon).
+// At endpoints: perpendicular translation of the endpoint.
+// mOff[i] corresponds to mOrig[i] for all i.
+
+function offsetPolylineFeature(feature, distMeters) {
+  const coords = feature.geometry.coordinates;
+  const origin = coords[0];
+  const scale  = degPerMetre(avgLat(coords));
+  const mOrig  = coords.map(c => toMetric(c, origin, scale));
+  const n      = mOrig.length;
+  if (n < 2) return null;
+
+  // Offset line for each segment
+  const segs = [];
+  for (let i = 0; i < n-1; i++) {
+    const edgeN = vecNorm(vecSub(mOrig[i+1], mOrig[i]));
+    segs.push({ p: vecAdd(mOrig[i], vecScale(vecPerp(edgeN), -distMeters)), d: edgeN });
+  }
+
+  const mOff = [];
+  // First endpoint: perpendicular translation
+  mOff.push(segs[0].p);
+  // Interior vertices: miter intersection
+  for (let i = 1; i < n-1; i++) {
+    const pt = lineIntersect(segs[i-1].p, segs[i-1].d, segs[i].p, segs[i].d);
+    mOff.push(pt || vecAdd(mOrig[i], vecScale(vecPerp(segs[i-1].d), -distMeters)));
+  }
+  // Last endpoint: perpendicular translation of last segment end
+  mOff.push(vecAdd(mOrig[n-1], vecScale(vecPerp(segs[n-2].d), -distMeters)));
+
+  const newCoords = mOff.map(xy => fromMetric(xy, origin, scale));
+  return {
+    feature: { ...feature, geometry: { type:'LineString', coordinates: newCoords } },
+    mOrig, mOff, origin, scale, isOpen: true
   };
 }
 
@@ -279,52 +315,88 @@ function applyRingChamfer(mOrig, mOff, larguraChanfro, indexSet) {
 }
 
 function chamferFeature(offsetResult, larguraChanfro, selectedIndices) {
-  const { mOrig, mOff, origin, scale, feature } = offsetResult;
+  const { mOrig, mOff, origin, scale, feature, isOpen } = offsetResult;
   const indexSet = selectedIndices && selectedIndices.length > 0 ? new Set(selectedIndices) : null;
-  const mResult  = applyRingChamfer(mOrig, mOff, larguraChanfro, indexSet);
-  const coords   = mResult.map(xy => fromMetric(xy, origin, scale));
+
+  if (isOpen) {
+    // Open polyline: only chamfer interior vertices (not endpoints)
+    const n   = mOff.length;
+    const out = [mOff[0]];                  // first endpoint — unchanged
+    for (let i = 1; i < n-1; i++) {
+      if (!indexSet || indexSet.has(i)) {
+        // Reuse PMSP function: for interior vertices (i-1+n)%n = i-1, (i+1)%n = i+1
+        const res = chamferVertexPMSP(mOrig, mOff, i, larguraChanfro);
+        if (res) { out.push(res[0]); out.push(res[1]); continue; }
+      }
+      out.push(mOff[i]);
+    }
+    out.push(mOff[n-1]);                    // last endpoint — unchanged
+    const coords = out.map(xy => fromMetric(xy, origin, scale));
+    return { ...feature, geometry: { type:'LineString', coordinates: coords } };
+  }
+
+  // Closed polygon
+  const mResult = applyRingChamfer(mOrig, mOff, larguraChanfro, indexSet);
+  const coords  = mResult.map(xy => fromMetric(xy, origin, scale));
   return { ...feature, geometry: { type:'Polygon', coordinates:[coords] } };
 }
 
-// Vértice é chanfrável se a bissetriz existe (V_quina ≠ V_off)
-// e as arestas adjacentes têm comprimento mínimo
-function vertexCanChamfer(mOrig, mOff, i, larguraChanfro) {
-  const n = mOff.length - 1;
+// Vértice é chanfrável se bissetriz existe e arestas adjacentes têm comprimento mínimo.
+// Para polilinha aberta: endpoints (i=0, i=n-1) nunca são chanfráveis.
+function vertexCanChamfer(mOrig, mOff, i, larguraChanfro, isOpen) {
+  const n = isOpen ? mOff.length : mOff.length - 1;
+  if (isOpen && (i === 0 || i === n-1)) return false;   // endpoints
   const bisLen = vecLen(vecSub(mOff[i], mOrig[i]));
   if (bisLen < 1e-8) return false;
-  // Arestas adjacentes devem ter pelo menos metade da largura do chanfro
   const half = larguraChanfro / 2;
-  return vecLen(vecSub(mOff[(i-1+n)%n], mOff[i])) > half &&
-         vecLen(vecSub(mOff[(i+1)%n],   mOff[i])) > half;
+  const prevIdx = isOpen ? i-1 : (i-1+n)%n;
+  const nextIdx = isOpen ? i+1 : (i+1)%n;
+  return vecLen(vecSub(mOff[prevIdx], mOff[i])) > half &&
+         vecLen(vecSub(mOff[nextIdx], mOff[i])) > half;
 }
 
-// ── EXTRACT POLYGON from raw Giraffe feature ─────────────────────────────────
+// ── DETECT & EXTRACT geometry from raw Giraffe feature ───────────────────────
+// Returns { feature, isOpen } or null.
+// isOpen = true  → LineString (open polyline), keep as-is
+// isOpen = false → Polygon (closed), close ring if needed
 function closeRing(coords) {
   if (coords.length < 3) return null;
   const f = coords[0], l = coords[coords.length-1];
   return (f[0]===l[0] && f[1]===l[1]) ? coords : [...coords, f];
 }
-function geomToPolygon(geom) {
-  if (!geom) return null;
-  if (geom.type === 'Polygon')      return geom;
-  if (geom.type === 'MultiPolygon') return { type:'Polygon', coordinates: geom.coordinates[0] };
-  if (geom.type === 'LineString') {
-    const r = closeRing(geom.coordinates);
-    return r ? { type:'Polygon', coordinates:[r] } : null;
-  }
-  if (geom.type === 'MultiLineString') {
-    const r = closeRing(geom.coordinates[0]);
-    return r ? { type:'Polygon', coordinates:[r] } : null;
-  }
-  return null;
+function coordsAreClosedRing(coords) {
+  if (coords.length < 3) return false;
+  const f = coords[0], l = coords[coords.length-1];
+  return Math.abs(f[0]-l[0]) < 1e-8 && Math.abs(f[1]-l[1]) < 1e-8;
 }
-function extractPolygon(raw) {
+function extractGeometry(raw) {
   if (!raw) return null;
-  const geom = geomToPolygon(raw.geometry);
-  if (geom) return { type:'Feature', properties: raw.properties||{}, geometry: geom };
-  for (const g of [raw.geojson, raw.geojson?.geometry, raw.properties?.geometry].filter(Boolean)) {
-    const g2 = geomToPolygon(g);
-    if (g2) return { type:'Feature', properties: raw.properties||{}, geometry: g2 };
+  const geomSrc = raw.geometry || raw.geojson?.geometry || raw.properties?.geometry;
+  if (!geomSrc) return null;
+  const props = raw.properties || {};
+
+  if (geomSrc.type === 'Polygon') {
+    return { feature: { type:'Feature', properties:props, geometry:geomSrc }, isOpen:false };
+  }
+  if (geomSrc.type === 'MultiPolygon') {
+    return { feature: { type:'Feature', properties:props, geometry:{ type:'Polygon', coordinates:geomSrc.coordinates[0] } }, isOpen:false };
+  }
+  if (geomSrc.type === 'LineString') {
+    const coords = geomSrc.coordinates;
+    if (coords.length < 2) return null;
+    if (coordsAreClosedRing(coords)) {
+      // Closed ring drawn as a line → treat as Polygon
+      return { feature: { type:'Feature', properties:props, geometry:{ type:'Polygon', coordinates:[coords] } }, isOpen:false };
+    }
+    // Genuine open polyline → keep as LineString
+    return { feature: { type:'Feature', properties:props, geometry:geomSrc }, isOpen:true };
+  }
+  if (geomSrc.type === 'MultiLineString') {
+    const coords = geomSrc.coordinates[0];
+    if (coordsAreClosedRing(coords)) {
+      return { feature: { type:'Feature', properties:props, geometry:{ type:'Polygon', coordinates:[coords] } }, isOpen:false };
+    }
+    return { feature: { type:'Feature', properties:props, geometry:{ type:'LineString', coordinates:coords } }, isOpen:true };
   }
   return null;
 }
@@ -344,12 +416,13 @@ function App() {
   const [selectedVerts, setSelectedVerts] = useState([]);
 
   const [srcFeature,    setSrcFeature]    = useState(null);
-  // offsetResult = { feature, mOrig, mOff, origin, scale } | null
+  const [isOpenLine,    setIsOpenLine]    = useState(false);
+  // offsetResult = { feature, mOrig, mOff, origin, scale, isOpen } | null
   const [offsetResult,  setOffsetResult]  = useState(null);
   const [vertexCount,   setVertexCount]   = useState(0);
   const [vertexArms,    setVertexArms]    = useState([]);
 
-  const [status,  setStatus]  = useState({ type:'warn', msg:'Selecione um polígono e clique em Capturar' });
+  const [status,  setStatus]  = useState({ type:'warn', msg:'Selecione um polígono ou polilinha e clique em Capturar' });
   const [logs,    setLogs]    = useState([]);
   const [running, setRunning] = useState(false);
 
@@ -361,12 +434,12 @@ function App() {
   // ── Recompute vertex arms whenever offsetResult or chamfer size changes ────
   useEffect(() => {
     if (!offsetResult) { setVertexArms([]); setVertexCount(0); return; }
-    const { mOff } = offsetResult;
-    const n    = mOff.length - 1;
+    const { mOff, isOpen } = offsetResult;
+    const n       = isOpen ? mOff.length : mOff.length - 1;
     const chamfNum = parseFloat(chamferSize);
     const arms = isNaN(chamfNum) || chamfNum <= 0
       ? Array(n).fill(false)
-      : Array.from({ length: n }, (_, i) => vertexCanChamfer(offsetResult.mOrig, mOff, i, chamfNum));
+      : Array.from({ length: n }, (_, i) => vertexCanChamfer(offsetResult.mOrig, mOff, i, chamfNum, isOpen));
     setVertexCount(n);
     setVertexArms(arms);
     setSelectedVerts(prev => prev.filter(i => i < n && arms[i]));
@@ -388,17 +461,22 @@ function App() {
         log('Seleção vazia', 'warn'); return;
       }
       let found = null;
-      for (const raw of candidates) { found = extractPolygon(raw); if (found) break; }
+      for (const raw of candidates) { found = extractGeometry(raw); if (found) break; }
       if (!found) {
-        setStatus({ type:'err', msg:'Feature não é um polígono válido' });
+        setStatus({ type:'err', msg:'Feature não reconhecida' });
         log('Tipo recebido: ' + candidates[0]?.geometry?.type, 'err'); return;
       }
-      const n = found.geometry.coordinates[0].length - 1;
-      setSrcFeature(found);
+      const { feature, isOpen } = found;
+      const coords = isOpen
+        ? feature.geometry.coordinates
+        : feature.geometry.coordinates[0];
+      const n = isOpen ? coords.length : coords.length - 1;
+      setSrcFeature(feature);
+      setIsOpenLine(isOpen);
       setOffsetResult(null);
       setSelectedVerts([]);
-      setStatus({ type:'ok', msg:`Polígono capturado · ${n} vértices` });
-      log(`Capturado: ${n} vértices`);
+      setStatus({ type:'ok', msg:`${isOpen ? '↗ Polilinha aberta' : '⬡ Polígono fechado'} · ${n} ${isOpen ? 'segmento(s)' : 'vértices'}` });
+      log(`Capturado: ${isOpen ? 'polilinha aberta' : 'polígono fechado'} · ${n} vértice(s)`);
     } catch(e) {
       log('Erro: ' + e.message, 'err');
       setStatus({ type:'err', msg:'Erro ao ler seleção' });
@@ -410,12 +488,13 @@ function App() {
     if (!srcFeature) return;
     const dist = parseFloat(offsetDist);
     if (isNaN(dist) || dist <= 0) { log('Distância inválida','err'); return; }
-    // inward = shrink = negative outward
     const d = offsetDir === 'inward' ? -dist : dist;
     log(`Calculando offset ${d > 0 ? '+' : ''}${d}m…`);
     try {
-      const result = offsetPolygon(srcFeature, d);
-      if (!result) { log('Offset inválido — polígono muito pequeno?','err'); return; }
+      const result = isOpenLine
+        ? offsetPolylineFeature(srcFeature, d)
+        : offsetPolygon(srcFeature, d);
+      if (!result) { log('Offset inválido — geometria muito pequena?','err'); return; }
       setOffsetResult(result);
       setSelectedVerts([]);
       const fc = { type:'FeatureCollection', features:[{
@@ -423,11 +502,11 @@ function App() {
         properties:{ ...result.feature.properties, color:'#f5a623', stroke:'#f5a623', strokeWidth:2, fillOpacity:0.08 }
       }]};
       await rpc.invoke('addTempLayerGeoJSON', [PREVIEW_OFFSET, fc]);
-      const n = result.feature.geometry.coordinates[0].length - 1;
-      log(`Offset aplicado: ${n} vértices`);
-      setStatus({ type:'ok', msg:`Offset ${dist}m aplicado · ${n} vértices` });
+      const n = result.mOff.length - (isOpenLine ? 0 : 1);
+      log(`Offset aplicado: ${n} vértice(s)`);
+      setStatus({ type:'ok', msg:`Offset ${dist}m · ${n} vértice(s)` });
     } catch(e) { log('Erro offset: '+e.message,'err'); }
-  }, [srcFeature, offsetDist, offsetDir, log]);
+  }, [srcFeature, offsetDist, offsetDir, isOpenLine, log]);
 
   // ── Preview Chamfer ───────────────────────────────────────────────────────
   const previewChamfer = useCallback(async () => {
@@ -521,7 +600,7 @@ function App() {
       h('div', { style:{ fontSize:'17px', fontWeight:600, color:'#dde3ee', letterSpacing:'-0.2px' } },
         h('span', { style:{ color:'#00ACCD' } }, '⬡ '), 'Offset + Chanfro PMSP'
       ),
-      h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'2px' } }, 'beta v8 · KV Arquitetos')
+      h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'2px' } }, 'beta v9 · KV Arquitetos')
     ),
 
     h('div', { className:`status-bar ${status.type}` },
