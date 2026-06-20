@@ -171,8 +171,9 @@ function offsetRingMetric(mRing, distMeters) {
 
   const newRing = [];
   for (let i = 0; i < n; i++) {
-    const cur  = offLines[i];
-    const next = offLines[(i+1) % n];
+    // Vertex i = intersection of edge(i-1) and edge(i) → aligns with mOrig[i]
+    const cur  = offLines[(i - 1 + n) % n];
+    const next = offLines[i];
     const pt   = lineIntersect(cur.p, cur.d, next.p, next.d);
     newRing.push(pt || next.p);
   }
@@ -204,36 +205,71 @@ function offsetPolygon(feature, distMeters) {
   };
 }
 
-// ── CHAMFER ───────────────────────────────────────────────────────────────────
-// For each vertex of the OFFSET ring:
-//   Walk chamferSize/2 metres along each adjacent edge FROM the vertex.
-//   Connect those two points → the chamfer line.
-//   This is the standard symmetric chamfer and matches the PMSP diagram:
-//   the "imaginary line" from orig→offset vertex IS the bisector of the corner,
-//   and the ±1.75m offset of that line intersects the two adjacent edges at
-//   exactly 1.75m from the vertex along each edge (for a 90° corner).
+// ── CHAMFER — ALGORITMO PMSP EXATO ────────────────────────────────────────────
+//
+// Garante que |Ponto_A − Ponto_B| = Largura_Chanfro INDEPENDENTE do ângulo.
+//
+// Prova geométrica (frame da bissetriz, eixo-x = bisDir, eixo-y = bisPerp):
+//   • V_off está na origem local. Reta_Offset_1 e Reta_Offset_2 se cruzam em
+//     V_off formando ângulos simétricos ±α em relação ao eixo-x (bissetriz).
+//   • Reta_Limite_A: y = +half  (dir = bisDir)
+//   • Reta_Limite_B: y = −half  (dir = bisDir)
+//   • Ponto_A = Reta_Offset_1 ∩ Reta_Limite_A  →  y_A = +half
+//   • Ponto_B = Reta_Offset_2 ∩ Reta_Limite_B  →  y_B = −half
+//   • Por simetria (±α), x_A = x_B (mesma componente ao longo da bissetriz)
+//   • Distância = |y_A − y_B| = 2·half = Largura_Chanfro  ✓
+//
+// Inputs:
+//   mOrig[i]  = V_quina   (vértice original)
+//   mOff[i]   = V_off     (vértice do polígono com offset = interseção das retas offset)
+//   larguraChanfro = tamanho total do chanfro em metros
 
-function chamferVertexSimple(mOff, i, halfDist) {
-  const n    = mOff.length - 1;
-  const prev = mOff[(i - 1 + n) % n];
-  const curr = mOff[i];
-  const next = mOff[(i + 1) % n];
+function chamferVertexPMSP(mOrig, mOff, i, larguraChanfro) {
+  const n = mOff.length - 1;
 
-  const segPrevLen = vecLen(vecSub(prev, curr));
-  const segNextLen = vecLen(vecSub(next, curr));
-  if (halfDist >= segPrevLen || halfDist >= segNextLen) return null;
+  // ── 1. Bissetriz: V_quina → V_off ─────────────────────────────────────────
+  const Vquina = mOrig[i];
+  const Voff   = mOff[i];
+  const bisVec = vecSub(Voff, Vquina);
+  const bisLen = vecLen(bisVec);
+  if (bisLen < 1e-8) return null;          // vértices coincidentes
+  const bisDir  = vecScale(bisVec, 1 / bisLen);  // unitário
+  const bisPerp = vecPerp(bisDir);                // perpendicular unitário
 
-  const p1 = vecAdd(curr, vecScale(vecNorm(vecSub(prev, curr)), halfDist));
-  const p2 = vecAdd(curr, vecScale(vecNorm(vecSub(next, curr)), halfDist));
-  return [p1, p2];
+  // ── 2. Retas limite: paralelas à bissetriz, offset ±Largura/2 ─────────────
+  const half    = larguraChanfro / 2;
+  const limA_pt = vecAdd(Voff, vecScale(bisPerp,  half));   // Reta_Limite_A
+  const limB_pt = vecAdd(Voff, vecScale(bisPerp, -half));   // Reta_Limite_B
+
+  // ── 3. Retas offset adjacentes (linhas infinitas das arestas do anel offset)
+  const prevIdx  = (i - 1 + n) % n;
+  const nextIdx  = (i + 1) % n;
+  const off1_pt  = mOff[prevIdx];                              // Reta_Offset_1
+  const off1_dir = vecNorm(vecSub(mOff[i],       mOff[prevIdx]));
+  const off2_pt  = mOff[i];                                   // Reta_Offset_2
+  const off2_dir = vecNorm(vecSub(mOff[nextIdx], mOff[i]));
+
+  // ── 4. Interseções via determinante (Cramer) ───────────────────────────────
+  // Combinação 1: Ponto_A = off1 ∩ limA,  Ponto_B = off2 ∩ limB
+  const pA1 = lineIntersect(off1_pt, off1_dir, limA_pt, bisDir);
+  const pB1 = lineIntersect(off2_pt, off2_dir, limB_pt, bisDir);
+  if (pA1 && pB1) return [pA1, pB1];
+
+  // Combinação 2 (fallback para quinas reflex ou orientação inversa):
+  // Ponto_A = off1 ∩ limB,  Ponto_B = off2 ∩ limA
+  const pA2 = lineIntersect(off1_pt, off1_dir, limB_pt, bisDir);
+  const pB2 = lineIntersect(off2_pt, off2_dir, limA_pt, bisDir);
+  if (pA2 && pB2) return [pA2, pB2];
+
+  return null;
 }
 
-function applyRingChamfer(mOff, halfDist, indexSet) {
+function applyRingChamfer(mOrig, mOff, larguraChanfro, indexSet) {
   const n   = mOff.length - 1;
   const out = [];
   for (let i = 0; i < n; i++) {
     if (!indexSet || indexSet.has(i)) {
-      const res = chamferVertexSimple(mOff, i, halfDist);
+      const res = chamferVertexPMSP(mOrig, mOff, i, larguraChanfro);
       if (res) { out.push(res[0]); out.push(res[1]); continue; }
     }
     out.push(mOff[i]);
@@ -242,19 +278,24 @@ function applyRingChamfer(mOff, halfDist, indexSet) {
   return out;
 }
 
-function chamferFeature(offsetResult, chamferMeters, selectedIndices) {
-  const { mOff, origin, scale, feature } = offsetResult;
-  const half     = chamferMeters / 2;
+function chamferFeature(offsetResult, larguraChanfro, selectedIndices) {
+  const { mOrig, mOff, origin, scale, feature } = offsetResult;
   const indexSet = selectedIndices && selectedIndices.length > 0 ? new Set(selectedIndices) : null;
-  const mResult  = applyRingChamfer(mOff, half, indexSet);
+  const mResult  = applyRingChamfer(mOrig, mOff, larguraChanfro, indexSet);
   const coords   = mResult.map(xy => fromMetric(xy, origin, scale));
   return { ...feature, geometry: { type:'Polygon', coordinates:[coords] } };
 }
 
-function vertexCanChamfer(mOff, i, halfDist) {
+// Vértice é chanfrável se a bissetriz existe (V_quina ≠ V_off)
+// e as arestas adjacentes têm comprimento mínimo
+function vertexCanChamfer(mOrig, mOff, i, larguraChanfro) {
   const n = mOff.length - 1;
-  return vecLen(vecSub(mOff[(i-1+n)%n], mOff[i])) > halfDist &&
-         vecLen(vecSub(mOff[(i+1)%n],   mOff[i])) > halfDist;
+  const bisLen = vecLen(vecSub(mOff[i], mOrig[i]));
+  if (bisLen < 1e-8) return false;
+  // Arestas adjacentes devem ter pelo menos metade da largura do chanfro
+  const half = larguraChanfro / 2;
+  return vecLen(vecSub(mOff[(i-1+n)%n], mOff[i])) > half &&
+         vecLen(vecSub(mOff[(i+1)%n],   mOff[i])) > half;
 }
 
 // ── EXTRACT POLYGON from raw Giraffe feature ─────────────────────────────────
@@ -322,10 +363,10 @@ function App() {
     if (!offsetResult) { setVertexArms([]); setVertexCount(0); return; }
     const { mOff } = offsetResult;
     const n    = mOff.length - 1;
-    const half = parseFloat(chamferSize) / 2;
-    const arms = isNaN(half) || half <= 0
+    const chamfNum = parseFloat(chamferSize);
+    const arms = isNaN(chamfNum) || chamfNum <= 0
       ? Array(n).fill(false)
-      : Array.from({ length: n }, (_, i) => vertexCanChamfer(mOff, i, half));
+      : Array.from({ length: n }, (_, i) => vertexCanChamfer(offsetResult.mOrig, mOff, i, chamfNum));
     setVertexCount(n);
     setVertexArms(arms);
     setSelectedVerts(prev => prev.filter(i => i < n && arms[i]));
@@ -480,7 +521,7 @@ function App() {
       h('div', { style:{ fontSize:'17px', fontWeight:600, color:'#dde3ee', letterSpacing:'-0.2px' } },
         h('span', { style:{ color:'#00ACCD' } }, '⬡ '), 'Offset + Chanfro PMSP'
       ),
-      h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'2px' } }, 'beta v7 · KV Arquitetos')
+      h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'2px' } }, 'beta v8 · KV Arquitetos')
     ),
 
     h('div', { className:`status-bar ${status.type}` },
