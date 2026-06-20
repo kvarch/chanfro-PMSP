@@ -129,7 +129,7 @@ function lineIntersect(p1, d1, p2, d2) {
   return [p1[0]+t*d1[0], p1[1]+t*d1[1]];
 }
 
-// ── Ring signed area (positive = CCW in standard math / screen-Y-down CW) ───
+// ── Ring signed area ─────────────────────────────────────────────────────────
 function ringArea(mRing) {
   let area = 0;
   const n = mRing.length - 1;
@@ -141,33 +141,31 @@ function ringArea(mRing) {
 }
 
 // ── OFFSET POLYGON ───────────────────────────────────────────────────────────
-// Perpendicular miter offset, exact distance in metres.
-// distMeters > 0 → expand (outward)
-// distMeters < 0 → shrink (inward)
-// Works regardless of ring orientation (CCW or CW).
+// distMeters > 0 → outward (expand)
+// distMeters < 0 → inward  (shrink)
+//
+// Strategy: normalise ring to CCW first, then offset.
+// For a CCW ring, vecPerp (90° CCW of edge dir) = left of travel = outward.
+// Positive distMeters moves outward, negative inward. Simple.
 
 function offsetRingMetric(mRing, distMeters) {
   const n = mRing.length - 1;
   if (n < 3) return null;
 
-  // GeoJSON rings from Giraffe come as CW (positive Y is north but lon/lat
-  // inversion means area < 0 in our metric space). We normalise: if ring is
-  // CW we flip the perpendicular direction so the semantics of
-  // distMeters > 0 = outward always holds.
-  const area = ringArea(mRing);
-  // For a CW ring in our XY space, area < 0.
-  // Right-hand perp of edge direction points outward for CCW, inward for CW.
-  // We want distMeters > 0 = outward regardless, so:
-  const dirSign = area >= 0 ? 1 : -1;  // flip perp for CW rings
+  // Normalise to CCW (area > 0). If CW, reverse the ring.
+  let ring = mRing.slice(0, n); // unique points
+  if (ringArea(mRing) < 0) ring = ring.slice().reverse();
 
   const offLines = [];
   for (let i = 0; i < n; i++) {
-    const A = mRing[i];
-    const B = mRing[(i+1) % n];
+    const A = ring[i];
+    const B = ring[(i+1) % n];
     const edgeN = vecNorm(vecSub(B, A));
-    // vecPerp = 90° CCW = left of travel = outward for CCW ring
+    // vecPerp = 90° CCW of edge direction = LEFT of travel.
+    // For a CCW ring, LEFT of travel = INWARD (toward polygon interior).
+    // So: distMeters > 0 should move RIGHT (outward) = -vecPerp direction.
     const perp  = vecPerp(edgeN);
-    const offPt = vecAdd(A, vecScale(perp, distMeters * dirSign));
+    const offPt = vecAdd(A, vecScale(perp, -distMeters));
     offLines.push({ p: offPt, d: edgeN });
   }
 
@@ -179,10 +177,16 @@ function offsetRingMetric(mRing, distMeters) {
     newRing.push(pt || next.p);
   }
   newRing.push(newRing[0]);
+
+  // Re-reverse if original was CW (so output orientation matches input)
+  if (ringArea(mRing) < 0) {
+    const rev = newRing.slice(0, newRing.length - 1).reverse();
+    rev.push(rev[0]);
+    return rev;
+  }
   return newRing;
 }
 
-// Returns both the offset feature AND the raw metric rings (needed for chamfer)
 function offsetPolygon(feature, distMeters) {
   const ring   = feature.geometry.coordinates[0];
   const origin = ring[0];
@@ -193,112 +197,43 @@ function offsetPolygon(feature, distMeters) {
   const newCoords = mOff.map(xy => fromMetric(xy, origin, scale));
   return {
     feature: { ...feature, geometry: { type:'Polygon', coordinates:[newCoords] } },
-    mOrig,   // metric original ring
-    mOff,    // metric offset ring
+    mOrig,
+    mOff,
     origin,
     scale
   };
 }
 
-// ── CHAMFER — PMSP BISECTOR METHOD ───────────────────────────────────────────
-//
-// For each selected vertex i of the OFFSET ring:
-//
-//  1. Take V_orig[i] (original ring) and V_off[i] (offset ring) —
-//     the "bisector line" is the line through these two points.
-//
-//  2. Compute the perpendicular direction to that bisector.
-//
-//  3. Offset the bisector line ±(chamferSize/2) metres perpendicularly
-//     → two parallel lines (the yellow lines in the diagram).
-//
-//  4. Intersect each parallel line with the two adjacent EDGES of the
-//     OFFSET ring → two intersection points.
-//
-//  5. Those two points are the endpoints of the chamfer segment (green line).
-//     They replace vertex i in the output ring.
+// ── CHAMFER ───────────────────────────────────────────────────────────────────
+// For each vertex of the OFFSET ring:
+//   Walk chamferSize/2 metres along each adjacent edge FROM the vertex.
+//   Connect those two points → the chamfer line.
+//   This is the standard symmetric chamfer and matches the PMSP diagram:
+//   the "imaginary line" from orig→offset vertex IS the bisector of the corner,
+//   and the ±1.75m offset of that line intersects the two adjacent edges at
+//   exactly 1.75m from the vertex along each edge (for a 90° corner).
 
-function chamferVertexPMSP(mOrig, mOff, i, halfDist) {
-  const n = mOff.length - 1;
+function chamferVertexSimple(mOff, i, halfDist) {
+  const n    = mOff.length - 1;
+  const prev = mOff[(i - 1 + n) % n];
+  const curr = mOff[i];
+  const next = mOff[(i + 1) % n];
 
-  const Vorig = mOrig[i % mOrig.length] || mOrig[i % (mOrig.length-1)];
-  const Voff  = mOff[i];
+  const segPrevLen = vecLen(vecSub(prev, curr));
+  const segNextLen = vecLen(vecSub(next, curr));
+  if (halfDist >= segPrevLen || halfDist >= segNextLen) return null;
 
-  // Bisector direction: from V_orig toward V_off
-  const bisDir = vecNorm(vecSub(Voff, Vorig));
-  if (vecLen(bisDir) < 1e-12) return null; // coincident points
-
-  // Perpendicular to bisector
-  const bisPerp = vecPerp(bisDir);
-
-  // Two parallel lines offset ±halfDist from bisector, passing through V_off
-  const lineA_pt = vecAdd(Voff, vecScale(bisPerp,  halfDist));
-  const lineB_pt = vecAdd(Voff, vecScale(bisPerp, -halfDist));
-
-  // Adjacent edges of the OFFSET ring at vertex i
-  const prevIdx = (i - 1 + n) % n;
-  const nextIdx = (i + 1) % n;
-
-  const edgePrev_A  = mOff[prevIdx];
-  const edgePrev_B  = mOff[i];
-  const edgePrev_dir = vecNorm(vecSub(edgePrev_B, edgePrev_A));
-
-  const edgeNext_A  = mOff[i];
-  const edgeNext_B  = mOff[nextIdx];
-  const edgeNext_dir = vecNorm(vecSub(edgeNext_B, edgeNext_A));
-
-  // Intersect each parallel line with each adjacent edge (as infinite lines)
-  // We need: lineA ∩ edgePrev, lineB ∩ edgeNext (order depends on geometry)
-  // Try both combinations and pick the one where both points land between
-  // vertex i and the adjacent vertex (i.e. on the correct side)
-
-  const bisLineDir = bisDir; // same direction for both parallel lines
-
-  const ptA_prev = lineIntersect(lineA_pt, bisLineDir, edgePrev_A, edgePrev_dir);
-  const ptA_next = lineIntersect(lineA_pt, bisLineDir, edgeNext_A, edgeNext_dir);
-  const ptB_prev = lineIntersect(lineB_pt, bisLineDir, edgePrev_A, edgePrev_dir);
-  const ptB_next = lineIntersect(lineB_pt, bisLineDir, edgeNext_A, edgeNext_dir);
-
-  // Pick the pair where one point is on edgePrev and the other on edgeNext
-  // A valid point on edgePrev should be between prevIdx and i vertices
-  function onSegment(pt, segA, segB) {
-    if (!pt) return false;
-    const ab = vecSub(segB, segA);
-    const ap = vecSub(pt, segA);
-    const t  = vecDot(ap, ab) / (vecDot(ab, ab) + 1e-15);
-    return t >= -0.01 && t <= 1.01;
-  }
-
-  // Combination 1: lineA ∩ edgePrev + lineB ∩ edgeNext
-  if (ptA_prev && ptB_next &&
-      onSegment(ptA_prev, edgePrev_A, edgePrev_B) &&
-      onSegment(ptB_next, edgeNext_A, edgeNext_B)) {
-    return [ptA_prev, ptB_next];
-  }
-  // Combination 2: lineB ∩ edgePrev + lineA ∩ edgeNext
-  if (ptB_prev && ptA_next &&
-      onSegment(ptB_prev, edgePrev_A, edgePrev_B) &&
-      onSegment(ptA_next, edgeNext_A, edgeNext_B)) {
-    return [ptB_prev, ptA_next];
-  }
-  // Fallback: just walk halfDist along each edge (standard symmetric chamfer)
-  const toPrev = vecNorm(vecSub(mOff[(i-1+n)%n], mOff[i]));
-  const toNext = vecNorm(vecSub(mOff[(i+1)%n],   mOff[i]));
-  const segPL  = vecLen(vecSub(mOff[(i-1+n)%n], mOff[i]));
-  const segNL  = vecLen(vecSub(mOff[(i+1)%n],   mOff[i]));
-  if (halfDist > segPL || halfDist > segNL) return null;
-  return [
-    vecAdd(mOff[i], vecScale(toPrev, halfDist)),
-    vecAdd(mOff[i], vecScale(toNext, halfDist))
-  ];
+  const p1 = vecAdd(curr, vecScale(vecNorm(vecSub(prev, curr)), halfDist));
+  const p2 = vecAdd(curr, vecScale(vecNorm(vecSub(next, curr)), halfDist));
+  return [p1, p2];
 }
 
-function applyRingChamfer(mOrig, mOff, halfDist, indexSet) {
+function applyRingChamfer(mOff, halfDist, indexSet) {
   const n   = mOff.length - 1;
   const out = [];
   for (let i = 0; i < n; i++) {
     if (!indexSet || indexSet.has(i)) {
-      const res = chamferVertexPMSP(mOrig, mOff, i, halfDist);
+      const res = chamferVertexSimple(mOff, i, halfDist);
       if (res) { out.push(res[0]); out.push(res[1]); continue; }
     }
     out.push(mOff[i]);
@@ -307,21 +242,19 @@ function applyRingChamfer(mOrig, mOff, halfDist, indexSet) {
   return out;
 }
 
-// Takes the original feature + the offsetResult from offsetPolygon()
 function chamferFeature(offsetResult, chamferMeters, selectedIndices) {
-  const { mOrig, mOff, origin, scale, feature } = offsetResult;
+  const { mOff, origin, scale, feature } = offsetResult;
   const half     = chamferMeters / 2;
   const indexSet = selectedIndices && selectedIndices.length > 0 ? new Set(selectedIndices) : null;
-  const mResult  = applyRingChamfer(mOrig, mOff, half, indexSet);
+  const mResult  = applyRingChamfer(mOff, half, indexSet);
   const coords   = mResult.map(xy => fromMetric(xy, origin, scale));
   return { ...feature, geometry: { type:'Polygon', coordinates:[coords] } };
 }
 
-// Check if vertex i can be chamfered (both adjacent offset segments long enough)
 function vertexCanChamfer(mOff, i, halfDist) {
   const n = mOff.length - 1;
-  return vecLen(vecSub(mOff[(i-1+n)%n], mOff[i])) >= halfDist &&
-         vecLen(vecSub(mOff[(i+1)%n],   mOff[i])) >= halfDist;
+  return vecLen(vecSub(mOff[(i-1+n)%n], mOff[i])) > halfDist &&
+         vecLen(vecSub(mOff[(i+1)%n],   mOff[i])) > halfDist;
 }
 
 // ── EXTRACT POLYGON from raw Giraffe feature ─────────────────────────────────
@@ -547,7 +480,7 @@ function App() {
       h('div', { style:{ fontSize:'17px', fontWeight:600, color:'#dde3ee', letterSpacing:'-0.2px' } },
         h('span', { style:{ color:'#00ACCD' } }, '⬡ '), 'Offset + Chanfro PMSP'
       ),
-      h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'2px' } }, 'beta v6 · KV Arquitetos')
+      h('div', { style:{ fontSize:'10px', color:'#2e3650', marginTop:'2px' } }, 'beta v7 · KV Arquitetos')
     ),
 
     h('div', { className:`status-bar ${status.type}` },
