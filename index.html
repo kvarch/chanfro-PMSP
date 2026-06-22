@@ -144,13 +144,42 @@ function offsetPolylineFeature(feature,d){
     const e=vecNorm(vecSub(mOrig[i+1],mOrig[i]));
     segs.push({p:vecAdd(mOrig[i],vecScale(vecPerp(e),-d)),d:e});
   }
+
   const mOff=[segs[0].p];
+  let hasBevels=false;
+
   for(let i=1;i<n-1;i++){
     const pt=lineIntersect(segs[i-1].p,segs[i-1].d,segs[i].p,segs[i].d);
-    mOff.push(pt||vecAdd(mOrig[i],vecScale(vecPerp(segs[i-1].d),-d)));
+    if(pt){
+      // t1 = signed distance along incoming segment to the intersection.
+      // t1 >= 0 → intersection is AHEAD (convex miter) → clean.
+      // t1 <  0 → intersection is BEHIND (concave corner → spike) → use bevel instead.
+      const t1=vecDot(vecSub(pt,segs[i-1].p),segs[i-1].d);
+      if(t1>=0){
+        mOff.push(pt);
+      }else{
+        // Bevel join: end of incoming offset segment + start of outgoing offset segment
+        const L=Math.max(0,vecDot(vecSub(mOrig[i],mOrig[i-1]),segs[i-1].d));
+        const bevel1=vecAdd(segs[i-1].p,vecScale(segs[i-1].d,L)); // offset of vertex via incoming perp
+        const bevel2=segs[i].p;                                    // offset of vertex via outgoing perp
+        mOff.push(bevel1);
+        mOff.push(bevel2);
+        hasBevels=true;
+      }
+    }else{
+      mOff.push(vecAdd(mOrig[i],vecScale(vecPerp(segs[i-1].d),-d)));
+    }
   }
   mOff.push(vecAdd(mOrig[n-1],vecScale(vecPerp(segs[n-2].d),-d)));
-  return{feature:{...feature,geometry:{type:'LineString',coordinates:mOff.map(xy=>fromMetric(xy,origin,scale))}},mOrig,mOff,origin,scale,isOpen:true,isDirect:false};
+
+  const newCoords=mOff.map(xy=>fromMetric(xy,origin,scale));
+  // When bevels were added mOff.length > mOrig.length, so set mOrig=mOff
+  // and isDirect=true so the chamfer uses the simple walk-along-edges algorithm.
+  return{
+    feature:{...feature,geometry:{type:'LineString',coordinates:newCoords}},
+    mOrig:hasBevels?mOff:mOrig,
+    mOff,origin,scale,isOpen:true,isDirect:hasBevels
+  };
 }
 function directBaseResult(feature,isOpen){
   const coords=isOpen?feature.geometry.coordinates:feature.geometry.coordinates[0];
@@ -172,10 +201,21 @@ function chamferVertexPMSP(mOrig,mOff,i,size){
   const limA=vecAdd(mOff[i],vecScale(bisPerp,half)),limB=vecAdd(mOff[i],vecScale(bisPerp,-half));
   const prev=(i-1+n)%n,next=(i+1)%n;
   const d1=vecNorm(vecSub(mOff[i],mOff[prev])),d2=vecNorm(vecSub(mOff[next],mOff[i]));
-  const pA=lineIntersect(mOff[prev],d1,limA,bisDir),pB=lineIntersect(mOff[i],d2,limB,bisDir);
-  if(pA&&pB)return[pA,pB];
+  const lA=vecLen(vecSub(mOff[i],mOff[prev])),lB=vecLen(vecSub(mOff[next],mOff[i]));
+
+  // Validate that intersection points fall WITHIN their edge segments.
+  // For external offsets, they can fall beyond the vertex, causing spikes.
+  function valid(pA,pB){
+    if(!pA||!pB)return false;
+    const tA=vecDot(vecSub(pA,mOff[prev]),d1); // position along incoming edge
+    const tB=vecDot(vecSub(pB,mOff[i]),  d2); // position along outgoing edge
+    return tA>=-1e-4&&tA<=lA+1e-4&&tB>=-1e-4&&tB<=lB+1e-4;
+  }
+
+  const pA1=lineIntersect(mOff[prev],d1,limA,bisDir),pB1=lineIntersect(mOff[i],d2,limB,bisDir);
+  if(valid(pA1,pB1))return[pA1,pB1];
   const pA2=lineIntersect(mOff[prev],d1,limB,bisDir),pB2=lineIntersect(mOff[i],d2,limA,bisDir);
-  if(pA2&&pB2)return[pA2,pB2];
+  if(valid(pA2,pB2))return[pA2,pB2];
   return null;
 }
 function chamferVertexPMSPOpen(mOrig,mOff,i,size){
@@ -186,10 +226,17 @@ function chamferVertexPMSPOpen(mOrig,mOff,i,size){
   const half=size/2;
   const limA=vecAdd(mOff[i],vecScale(bisPerp,half)),limB=vecAdd(mOff[i],vecScale(bisPerp,-half));
   const d1=vecNorm(vecSub(mOff[i],mOff[i-1])),d2=vecNorm(vecSub(mOff[i+1],mOff[i]));
-  const pA=lineIntersect(mOff[i-1],d1,limA,bisDir),pB=lineIntersect(mOff[i],d2,limB,bisDir);
-  if(pA&&pB)return[pA,pB];
+  const lA=vecLen(vecSub(mOff[i],mOff[i-1])),lB=vecLen(vecSub(mOff[i+1],mOff[i]));
+  function valid(pA,pB){
+    if(!pA||!pB)return false;
+    const tA=vecDot(vecSub(pA,mOff[i-1]),d1);
+    const tB=vecDot(vecSub(pB,mOff[i]),  d2);
+    return tA>=-1e-4&&tA<=lA+1e-4&&tB>=-1e-4&&tB<=lB+1e-4;
+  }
+  const pA1=lineIntersect(mOff[i-1],d1,limA,bisDir),pB1=lineIntersect(mOff[i],d2,limB,bisDir);
+  if(valid(pA1,pB1))return[pA1,pB1];
   const pA2=lineIntersect(mOff[i-1],d1,limB,bisDir),pB2=lineIntersect(mOff[i],d2,limA,bisDir);
-  if(pA2&&pB2)return[pA2,pB2];
+  if(valid(pA2,pB2))return[pA2,pB2];
   return null;
 }
 // Simple walk-along-edges chamfer (direct mode — no mOrig needed)
@@ -519,7 +566,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v11 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v13 · KV Arquitetos')
     ),
 
     // Status
