@@ -387,8 +387,88 @@ function extractGeometry(raw){
 }
 
 // ═══════════════════════════════════════════════════════
-// CONSTANTS
+// LINE JOIN — junção de linhas por extensão
 // ═══════════════════════════════════════════════════════
+
+// Testa as 4 combinações endpoint×direção e retorna a interseção com menor
+// soma das extensões (t1+t2), desde que ambas as extensões sejam ≥ 0.
+function findLineIntersection(L1s,L1e,L2s,L2e){
+  const combos=[
+    [L1s,vecNorm(vecSub(L1e,L1s)),L2s,vecNorm(vecSub(L2e,L2s))],
+    [L1s,vecNorm(vecSub(L1e,L1s)),L2e,vecNorm(vecSub(L2s,L2e))],
+    [L1e,vecNorm(vecSub(L1s,L1e)),L2s,vecNorm(vecSub(L2e,L2s))],
+    [L1e,vecNorm(vecSub(L1s,L1e)),L2e,vecNorm(vecSub(L2s,L2e))],
+  ];
+  let best=null;
+  for(const[p1,d1,p2,d2]of combos){
+    const pt=lineIntersect(p1,d1,p2,d2);
+    if(!pt)continue;
+    const t1=vecDot(vecSub(pt,p1),d1),t2=vecDot(vecSub(pt,p2),d2);
+    if(t1>=-0.01&&t2>=-0.01){
+      const total=t1+t2;
+      if(!best||total<best.total)best={pt,total};
+    }
+  }
+  return best?best.pt:null;
+}
+
+// Converte N features de linha em N pontos de canto (em lon/lat).
+// lines já está na ordem desejada (cíclica).
+function joinLinesToCorners(lineFeats){
+  if(lineFeats.length<2)return{err:'Selecione ao menos 2 linhas'};
+  const allCoords=lineFeats.flatMap(f=>f.geometry.coordinates);
+  const origin=allCoords[0],scale=degPerMetre(avgLat(allCoords));
+  const mL=lineFeats.map(f=>{
+    const mc=f.geometry.coordinates.map(c=>toMetric(c,origin,scale));
+    return{s:mc[0],e:mc[mc.length-1]};
+  });
+  const n=mL.length,corners=[];
+  for(let i=0;i<n;i++){
+    const L1=mL[i],L2=mL[(i+1)%n];
+    const pt=findLineIntersection(L1.s,L1.e,L2.s,L2.e);
+    if(!pt)return{err:`Linhas ${i+1} e ${(i+1)%n+1} são paralelas — sem interseção`};
+    corners.push(fromMetric(pt,origin,scale));
+  }
+  corners.push(corners[0]);
+  return{corners,n};
+}
+
+// Auto-ordena N linhas (N ≤ 7) por força bruta de permutações, minimizando
+// a soma total de extensões. Retorna array de índices ordenados ou null.
+function autoOrderLines(lineFeats){
+  const n=lineFeats.length;
+  if(n>7)return null; // too many
+  const allCoords=lineFeats.flatMap(f=>f.geometry.coordinates);
+  const origin=allCoords[0],scale=degPerMetre(avgLat(allCoords));
+  const mL=lineFeats.map(f=>{
+    const mc=f.geometry.coordinates.map(c=>toMetric(c,origin,scale));
+    return{s:mc[0],e:mc[mc.length-1]};
+  });
+  // Generate permutations of [1..n-1] (fix index 0)
+  function* perms(arr){
+    if(arr.length<=1){yield arr;return;}
+    for(let i=0;i<arr.length;i++){
+      const rest=[...arr.slice(0,i),...arr.slice(i+1)];
+      for(const p of perms(rest))yield[arr[i],...p];
+    }
+  }
+  let bestOrder=null,bestCost=Infinity;
+  const others=Array.from({length:n-1},(_,i)=>i+1);
+  for(const perm of perms(others)){
+    const order=[0,...perm];
+    let valid=true,cost=0;
+    for(let i=0;i<n;i++){
+      const L1=mL[order[i]],L2=mL[order[(i+1)%n]];
+      const pt=findLineIntersection(L1.s,L1.e,L2.s,L2.e);
+      if(!pt){valid=false;break;}
+      cost+=vecLen(vecSub(pt,L1.e))+vecLen(vecSub(pt,L2.s));
+    }
+    if(valid&&cost<bestCost){bestCost=cost;bestOrder=order;}
+  }
+  return bestOrder;
+}
+
+
 const PV_OFF='__oc_off__',PV_RES='__oc_res__';
 
 // ═══════════════════════════════════════════════════════
@@ -419,13 +499,73 @@ function App(){
   const[logs,     setLogs]     =useState([]);
   const[running,  setRunning]  =useState(false);
   const[offApplied,setOffApplied]=useState(false);
+  // Join Lines panel
+  const[joinOpen,  setJoinOpen]  =useState(false);
+  const[joinFeats, setJoinFeats] =useState([]);   // captured line features
+  const[joinMsg,   setJoinMsg]   =useState('');   // status/error message
 
   const log=useCallback((m,t='ok')=>{
     const ts=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
     setLogs(p=>[...p.slice(-50),{m,t,ts}]);
   },[]);
 
-  // ── Base result (what chamfer/fillet operates on) ──
+  // ── Join Lines ────────────────────────────────────────
+  const captureForJoin=useCallback(async()=>{
+    setJoinMsg('Lendo seleção…');
+    try{
+      const result=await rpc.invoke('getSelectedFeatures',[]);
+      let cands=[];
+      if(!result)cands=[];
+      else if(Array.isArray(result))cands=result;
+      else if(result.type==='FeatureCollection')cands=result.features||[];
+      else cands=[result];
+
+      // Extract only open polylines
+      const lines=cands.map(r=>extractGeometry(r)).filter(g=>g&&g.isOpen).map(g=>g.feature);
+      if(lines.length<2){
+        setJoinMsg(`❌ Encontradas ${lines.length} polilinha(s) aberta(s) — selecione ao menos 2`);
+        return;
+      }
+      setJoinFeats(lines);
+      setJoinMsg(`✓ ${lines.length} linhas capturadas`);
+    }catch(e){setJoinMsg('❌ Erro: '+e.message);}
+  },[log]);
+
+  const doJoin=useCallback(async()=>{
+    if(joinFeats.length<2){setJoinMsg('Capture as linhas primeiro');return;}
+    setJoinMsg('Calculando interseções…');
+    try{
+      // Try auto-order
+      let feats=joinFeats;
+      if(joinFeats.length>2){
+        const order=autoOrderLines(joinFeats);
+        if(order)feats=order.map(i=>joinFeats[i]);
+        else{setJoinMsg('⚠ Não foi possível auto-ordenar. Selecione as linhas em ordem.');return;}
+      }
+
+      const res=joinLinesToCorners(feats);
+      if(res.err){setJoinMsg('❌ '+res.err);return;}
+
+      // Build feature
+      const isClosedResult=res.n>2;
+      const geom=isClosedResult
+        ?{type:'Polygon',coordinates:[res.corners]}
+        :{type:'LineString',coordinates:res.corners.slice(0,-1)};
+      const feat={type:'Feature',properties:{},geometry:geom};
+
+      // Show preview
+      const fc={type:'FeatureCollection',features:[{...feat,properties:{color:'#00ff88',stroke:'#00ff88',strokeWidth:2,fillOpacity:.08}}]};
+      await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fc]);
+
+      // Set as source for main workflow
+      setSrcFeat(feat);
+      setIsOpen(!isClosedResult);
+      setOffResult(null);setOffApplied(false);setSelVerts([]);
+      setStatus({t:'ok',m:`${isClosedResult?'⬡ Polígono':'↗ Polilinha'} criado · ${res.n} vértice(s)`});
+      setJoinMsg(`✓ Geometria criada — continue no workflow abaixo`);
+      log(`Junção: ${res.n} linhas → ${isClosedResult?'polígono':'polilinha'}`);
+    }catch(e){setJoinMsg('❌ '+e.message);}
+  },[joinFeats,log]);
   const getBase=useCallback(()=>{
     if(target==='direct'&&srcFeat)return directBaseResult(srcFeat,isOpen);
     return offResult;
@@ -566,7 +706,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v13 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v14 · KV Arquitetos')
     ),
 
     // Status
@@ -578,6 +718,52 @@ function App(){
       h('div',{className:`ps ${szValid&&hasSrc?'ac':''}`},'Operação'),
       h('div',{className:`ps ${target==='offset'?offApplied?'dn':hasSrc?'ac':'':'dn'}`},target==='offset'?'Offset':'—'),
       h('div',{className:`ps ${canGenerate?'ac':''}`},'Resultado')
+    ),
+
+    // ── Junção de Linhas (collapsible) ───────────────────
+    h('div',{className:'panel'},
+      h('div',{
+        className:'panel-header',
+        style:{cursor:'pointer',userSelect:'none'},
+        onClick:()=>setJoinOpen(o=>!o)
+      },
+        h('span',{className:'sb sb-act'},'⋈'),
+        h('span',{style:{flex:1}},'Junção de Linhas'),
+        h('span',{style:{fontSize:'10px',color:'#3a4155'}},joinOpen?'▲ fechar':'▼ abrir')
+      ),
+      joinOpen&&h('div',{className:'panel-body'},
+        h('p',{className:'ch',style:{marginBottom:'4px'}},
+          'Selecione 2 ou mais linhas abertas no mapa que se encontrariam se estendidas. ',
+          'O app calcula as interseções e gera o polígono.'),
+        h('button',{className:'bc',onClick:captureForJoin},'⊙ Capturar linhas selecionadas'),
+
+        joinFeats.length>0&&h('div',{style:{fontSize:'11px',color:'#3a4155',padding:'4px 0'}},
+          `${joinFeats.length} linha(s) capturada(s)`,
+          joinFeats.length>2&&h('span',{style:{color:'#f5a623',marginLeft:'6px'}},
+            '· auto-ordenação ativa')
+        ),
+
+        joinMsg&&h('div',{
+          style:{
+            fontSize:'11px',padding:'6px 8px',borderRadius:'6px',marginTop:'2px',
+            background: joinMsg.startsWith('✓')?'#00ACCD12':
+                        joinMsg.startsWith('❌')?'#f5555512':'#f5a62312',
+            color:      joinMsg.startsWith('✓')?'#00ACCD':
+                        joinMsg.startsWith('❌')?'#f56':'#f5a623',
+            border:     `1px solid ${joinMsg.startsWith('✓')?'#00ACCD2a':joinMsg.startsWith('❌')?'#f555552a':'#f5a6232a'}`,
+          }
+        },joinMsg),
+
+        h('button',{
+          className:'bp',
+          onClick:doJoin,
+          disabled:joinFeats.length<2,
+          style:{marginTop:'4px'}
+        },'⋈ Calcular interseções e criar geometria'),
+
+        h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'4px',lineHeight:'1.5'}},
+          'A geometria criada é carregada automaticamente no workflow abaixo para você aplicar offset e chanfro.')
+      )
     ),
 
     // ── STEP 0: Capturar ──────────────────────────────────────
