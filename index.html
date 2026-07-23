@@ -601,12 +601,14 @@ function App(){
       let feat,isOpenResult;
 
       if(feats.length===2){
-        // Constrói caminho completo: [...L1_vértices, P, ...L2_vértices]
-        const coords=join2Lines(feats[0],feats[1]);
-        if(!coords){setJoinMsg('❌ Linhas são paralelas — sem interseção possível');return;}
-        feat={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:coords}};
-        isOpenResult=true;
-        log(`Junção: 2 linhas → polilinha com ${coords.length} vértices (inclui vértices originais + P)`);
+        // Para 2 linhas: cria polígono fechado conectando as extremidades livres
+        // Path: [L1s → ... → P → ... → L2e] → fecha com L1s → polígono
+        const path=join2Lines(feats[0],feats[1]);
+        if(!path||path.length<3){setJoinMsg('❌ Linhas paralelas — sem interseção possível');return;}
+        const ring=[...path, path[0]];  // fecha o anel: L2e → L1s
+        feat={type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[ring]}};
+        isOpenResult=false;
+        log(`Junção: 2 linhas → polígono ${path.length} vértices (fechado L2e→L1s)`);
       }else{
         // N>2: polígono dos N cantos
         const res=joinLinesToCorners(feats);
@@ -624,7 +626,7 @@ function App(){
       setSrcFeat(feat);setIsOpen(isOpenResult);
       setOffResult(null);setOffApplied(false);setSelVerts([]);
       setStatus({t:'ok',m:`${isOpenResult?'↗ Polilinha':'⬡ Polígono'} criado · pronto para offset/chanfro`});
-      setJoinMsg('✓ Geometria criada — continue no workflow abaixo');
+      setJoinMsg(`✓ ${isOpenResult?'Polilinha aberta':'Polígono fechado'} criado — continue no workflow abaixo`);
     }catch(e){setJoinMsg('❌ '+e.message);}
   },[joinFeats,log]);
   const getBase=useCallback(()=>{
@@ -767,7 +769,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v16 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v17 · KV Arquitetos')
     ),
 
     // Status
