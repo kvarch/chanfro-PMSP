@@ -390,63 +390,84 @@ function extractGeometry(raw){
 // LINE JOIN — junção de linhas por extensão
 // ═══════════════════════════════════════════════════════
 
-// Testa as 4 combinações endpoint×direção e retorna a interseção com menor
-// soma das extensões, além de quais caminhos de vértices usar.
-//
-// Cada combo define:
-//   p1 = ponto de origem do raio na linha 1 (a extremidade da L1 que NÃO é mantida como início do path)
-//   d1 = direção do raio de L1
-//   p2 = mesma lógica para L2
-//
-// Resultado para construir o path completo [...L1_path, P, ...L2_path]:
-//   p1=L1s → L1_path = c1  (L1s é o início; percorre forward até L1e, depois chega P)
-//   p1=L1e → L1_path = rc1 (L1e é o início; percorre reversed até L1s, depois chega P)
-//   p2=L2e → L2_path = c2  (após P, o ponto próximo é L2s; continua forward até L2e)
-//   p2=L2s → L2_path = rc2 (após P, o ponto próximo é L2e; continua reversed até L2s)
-function findLineJoinFull(c1,c2){
-  const rc1=c1.slice().reverse(),rc2=c2.slice().reverse();
-  const L1s=c1[0],L1e=c1[c1.length-1];
-  const L2s=c2[0],L2e=c2[c2.length-1];
-  // [p1, d1, p2, d2, L1_path, L2_path]
+// Ponto de interseção entre dois segmentos estendidos infinitamente.
+// Usado para N>2 linhas e auto-ordering.
+function findLineIntersection(L1s,L1e,L2s,L2e){
   const combos=[
-    [L1s,vecNorm(vecSub(L1e,L1s)), L2e,vecNorm(vecSub(L2s,L2e)), c1,  c2 ],
-    [L1s,vecNorm(vecSub(L1e,L1s)), L2s,vecNorm(vecSub(L2e,L2s)), c1,  rc2],
-    [L1e,vecNorm(vecSub(L1s,L1e)), L2e,vecNorm(vecSub(L2s,L2e)), rc1, c2 ],
-    [L1e,vecNorm(vecSub(L1s,L1e)), L2s,vecNorm(vecSub(L2e,L2s)), rc1, rc2],
+    [L1s,vecNorm(vecSub(L1e,L1s)),L2s,vecNorm(vecSub(L2e,L2s))],
+    [L1s,vecNorm(vecSub(L1e,L1s)),L2e,vecNorm(vecSub(L2s,L2e))],
+    [L1e,vecNorm(vecSub(L1s,L1e)),L2s,vecNorm(vecSub(L2e,L2s))],
+    [L1e,vecNorm(vecSub(L1s,L1e)),L2e,vecNorm(vecSub(L2s,L2e))],
   ];
   let best=null;
-  for(const[p1,d1,p2,d2,l1,l2]of combos){
+  for(const[p1,d1,p2,d2]of combos){
     const pt=lineIntersect(p1,d1,p2,d2);
     if(!pt)continue;
     const t1=vecDot(vecSub(pt,p1),d1),t2=vecDot(vecSub(pt,p2),d2);
     if(t1>=-0.01&&t2>=-0.01){
       const total=t1+t2;
-      if(!best||total<best.total)best={pt,total,l1,l2};
+      if(!best||total<best.total)best={pt,total};
     }
   }
-  return best;
+  return best?best.pt:null;
 }
 
-// Versão simplificada (só retorna o ponto) — usada para N>2 e auto-ordering.
-function findLineIntersection(L1s,L1e,L2s,L2e){
-  const res=findLineJoinFull([L1s,L1e],[L2s,L2e]);
-  return res?res.pt:null;
-}
-
-// ── Para 2 linhas: constrói o caminho completo preservando todos os vértices
-// Resultado: [...L1_vertices, P_intersection, ...L2_vertices]  (open polyline em lon/lat)
+// ── Para 2 linhas: constrói o caminho completo preservando todos os vértices.
+//
+// Testa 4 pairings semânticos (qual extremidade de cada linha se encontra em P).
+// Para cada pairing, p1 e p2 são os endpoints sendo estendidos, com direção
+// PARA FORA (AWAY from the other endpoint = direção de extensão natural).
+// Seleciona o pairing com menor extensão total (t1+t2) onde ambos t >= 0.
+//
+// Resultado: [...L1_vertices_sem_active_end, P, ...L2_vertices_sem_active_end]
 function join2Lines(feat1,feat2){
   const c1=feat1.geometry.coordinates;
   const c2=feat2.geometry.coordinates;
-  // Trabalha em lon/lat (erro < 1mm para distâncias < 1km em SP)
-  const res=findLineJoinFull(c1,c2);
-  if(!res)return null;
-  // Remove o último vértice de l1 (o ponto "ativo" que é substituído por P)
-  // e o primeiro vértice de l2 (idem) para evitar duplicatas próximas de P.
-  const l1=res.l1.slice(0,-1);  // tudo até antes da extremidade ativa de L1
-  const l2=res.l2.slice(1);     // tudo após a extremidade ativa de L2
-  return [...l1, res.pt, ...l2];
+  if(c1.length<2||c2.length<2)return null;
+  const L1s=c1[0],L1e=c1[c1.length-1];
+  const L2s=c2[0],L2e=c2[c2.length-1];
+
+  // Cada pairing define qual endpoint de cada linha é o "ativo" (estendido até P)
+  // e como construir o path completo a partir de P.
+  // Todos os 4 pairings produzem paths sem U-turn em P.
+  const pairings=[
+    { // L1e encontra L2s → path: L1s→…→[P]→…→L2e
+      p1:L1e, d1:vecNorm(vecSub(L1e,L1s)),
+      p2:L2s, d2:vecNorm(vecSub(L2s,L2e)),
+      mk:(pt)=>[...c1.slice(0,-1), pt, ...c2.slice(1)]
+    },
+    { // L1e encontra L2e → path: L1s→…→[P]→…→L2s
+      p1:L1e, d1:vecNorm(vecSub(L1e,L1s)),
+      p2:L2e, d2:vecNorm(vecSub(L2e,L2s)),
+      mk:(pt)=>[...c1.slice(0,-1), pt, ...c2.slice(0,-1).reverse()]
+    },
+    { // L1s encontra L2s → path: L1e→…→[P]→…→L2e
+      p1:L1s, d1:vecNorm(vecSub(L1s,L1e)),
+      p2:L2s, d2:vecNorm(vecSub(L2s,L2e)),
+      mk:(pt)=>[...c1.slice(1).reverse(), pt, ...c2.slice(1)]
+    },
+    { // L1s encontra L2e → path: L1e→…→[P]→…→L2s
+      p1:L1s, d1:vecNorm(vecSub(L1s,L1e)),
+      p2:L2e, d2:vecNorm(vecSub(L2e,L2s)),
+      mk:(pt)=>[...c1.slice(1).reverse(), pt, ...c2.slice(0,-1).reverse()]
+    }
+  ];
+
+  let best=null;
+  for(const pair of pairings){
+    const pt=lineIntersect(pair.p1,pair.d1,pair.p2,pair.d2);
+    if(!pt)continue;
+    const t1=vecDot(vecSub(pt,pair.p1),pair.d1);
+    const t2=vecDot(vecSub(pt,pair.p2),pair.d2);
+    if(t1>=-0.01&&t2>=-0.01){
+      const total=t1+t2;
+      if(!best||total<best.total)best={pt,total,pair};
+    }
+  }
+  if(!best)return null;
+  return best.pair.mk(best.pt);
 }
+
 
 // ── Para N>2 linhas: retorna apenas os N cantos (pontos de interseção) em lon/lat
 function joinLinesToCorners(lineFeats){
@@ -746,7 +767,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v15 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v16 · KV Arquitetos')
     ),
 
     // Status
