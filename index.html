@@ -424,80 +424,37 @@ function findLineIntersection(L1s,L1e,L2s,L2e){
 //   Pairing 3: L1s←L1→P→L2s (L1 invertida)
 //   Pairing 4: L1s←L1→P←L2e (ambas invertidas)
 // Seleciona o pairing com menor extensão total (t1+t2 mínimo).
-function join2Lines(feat1,feat2){
+
+// ── JUNÇÃO DE 2 LINHAS por interseção matemática ────────────────────────────
+// Algoritmo:
+//  1. Pega os 2 últimos pontos de L1  → define a reta diretora do final de L1
+//  2. Pega os 2 primeiros pontos de L2 → define a reta diretora do início de L2
+//  3. Calcula B = interseção dessas duas retas infinitas (regra de Cramer 2D)
+//  4. Retorna { path: [...todosL1, B, ...todosL2], b: B }
+//     → uma única polyline completa de far(L1) até B até far(L2)
+function joinAtIntersection(feat1,feat2){
   const c1=feat1.geometry.coordinates;
   const c2=feat2.geometry.coordinates;
   if(c1.length<2||c2.length<2)return null;
-  const L1s=c1[0],L1e=c1[c1.length-1];
-  const L2s=c2[0],L2e=c2[c2.length-1];
-  const rc1=c1.slice().reverse();
-  const rc2=c2.slice().reverse();
 
-  const pairings=[
-    { // L1e e L2s ativos (removidos) → [L1s...L1_penúltimo, P, L2_2º...L2e]
-      p1:L1e, d1:vecNorm(vecSub(L1e,L1s)),
-      p2:L2s, d2:vecNorm(vecSub(L2s,L2e)),
-      mk:(pt)=>[...c1.slice(0,-1), pt, ...c2.slice(1)]
-    },
-    { // L1e e L2e ativos (removidos) → [L1s...L1_penúltimo, P, L2_penúltimo...L2s]
-      p1:L1e, d1:vecNorm(vecSub(L1e,L1s)),
-      p2:L2e, d2:vecNorm(vecSub(L2e,L2s)),
-      mk:(pt)=>[...c1.slice(0,-1), pt, ...c2.slice(0,-1).reverse()]
-    },
-    { // L1s e L2s ativos (removidos) → [L1e...L1_2º, P, L2_2º...L2e]
-      p1:L1s, d1:vecNorm(vecSub(L1s,L1e)),
-      p2:L2s, d2:vecNorm(vecSub(L2s,L2e)),
-      mk:(pt)=>[...c1.slice(1).reverse(), pt, ...c2.slice(1)]
-    },
-    { // L1s e L2e ativos (removidos) → [L1e...L1_2º, P, L2_penúltimo...L2s]
-      p1:L1s, d1:vecNorm(vecSub(L1s,L1e)),
-      p2:L2e, d2:vecNorm(vecSub(L2e,L2s)),
-      mk:(pt)=>[...c1.slice(1).reverse(), pt, ...c2.slice(0,-1).reverse()]
-    }
-  ];
-  let best=null;
-  for(const pair of pairings){
-    const pt=lineIntersect(pair.p1,pair.d1,pair.p2,pair.d2);
-    if(!pt)continue;
-    const t1=vecDot(vecSub(pt,pair.p1),pair.d1);
-    const t2=vecDot(vecSub(pt,pair.p2),pair.d2);
-    if(t1>=-0.01&&t2>=-0.01){
-      const total=t1+t2;
-      if(!best||total<best.total)best={pt,total,pair};
-    }
-  }
-  if(!best)return null;
-  return best.pair.mk(best.pt);
-}
+  // Últimos 2 pontos de L1 → direção do final
+  const p1=c1[c1.length-2], p2=c1[c1.length-1];
+  // Primeiros 2 pontos de L2 → direção do início
+  const p3=c2[0], p4=c2[1];
 
+  const d1x=p2[0]-p1[0], d1y=p2[1]-p1[1];
+  const d2x=p4[0]-p3[0], d2y=p4[1]-p3[1];
 
+  // Regra de Cramer: p2 + t·d1 = p3 + s·d2  →  t
+  const det=d1x*d2y-d1y*d2x;
+  if(Math.abs(det)<1e-12)return null; // retas paralelas
 
-// ── Versão que retorna DUAS LINHAS SEPARADAS que se encontram em B
-// ext1 = linha completa L1 estendida até B (far_end → ... → B)
-// ext2 = linha completa L2 estendida até B (B → ... → far_end)
-// Cada pairing remove o endpoint ativo (substituído por B) e mantém o resto.
-function extendTwoLines(feat1,feat2){
-  const c1=feat1.geometry.coordinates,c2=feat2.geometry.coordinates;
-  if(c1.length<2||c2.length<2)return null;
-  const L1s=c1[0],L1e=c1[c1.length-1],L2s=c2[0],L2e=c2[c2.length-1];
-  const pairings=[
-    { p1:L1e,d1:vecNorm(vecSub(L1e,L1s)),p2:L2s,d2:vecNorm(vecSub(L2s,L2e)),
-      mk1:(pt)=>[...c1.slice(0,-1),pt], mk2:(pt)=>[pt,...c2.slice(1)] },
-    { p1:L1e,d1:vecNorm(vecSub(L1e,L1s)),p2:L2e,d2:vecNorm(vecSub(L2e,L2s)),
-      mk1:(pt)=>[...c1.slice(0,-1),pt], mk2:(pt)=>[pt,...c2.slice(0,-1).reverse()] },
-    { p1:L1s,d1:vecNorm(vecSub(L1s,L1e)),p2:L2s,d2:vecNorm(vecSub(L2s,L2e)),
-      mk1:(pt)=>[...c1.slice(1).reverse(),pt], mk2:(pt)=>[pt,...c2.slice(1)] },
-    { p1:L1s,d1:vecNorm(vecSub(L1s,L1e)),p2:L2e,d2:vecNorm(vecSub(L2e,L2s)),
-      mk1:(pt)=>[...c1.slice(1).reverse(),pt], mk2:(pt)=>[pt,...c2.slice(0,-1).reverse()] }
-  ];
-  let best=null;
-  for(const pair of pairings){
-    const pt=lineIntersect(pair.p1,pair.d1,pair.p2,pair.d2);if(!pt)continue;
-    const t1=vecDot(vecSub(pt,pair.p1),pair.d1),t2=vecDot(vecSub(pt,pair.p2),pair.d2);
-    if(t1>=-0.01&&t2>=-0.01){const total=t1+t2;if(!best||total<best.total)best={pt,total,pair};}
-  }
-  if(!best)return null;
-  return{ext1:best.pair.mk1(best.pt), ext2:best.pair.mk2(best.pt), b:best.pt};
+  const dx=p3[0]-p2[0], dy=p3[1]-p2[1];
+  const t=(dx*d2y-dy*d2x)/det;
+  const B=[p2[0]+t*d1x, p2[1]+t*d1y];
+
+  // Array completo: todos os pontos de L1 + B + todos os pontos de L2
+  return{path:[...c1,B,...c2], b:B};
 }
 
 function joinLinesToCorners(lineFeats){
@@ -631,35 +588,25 @@ function App(){
       let feat,isOpenResult;
 
       if(feats.length===2){
-        // Cria DUAS LINHAS SEPARADAS e completas que se encontram em B:
-        // Linha 1: de far_L1 até B   (ex: C → B)
-        // Linha 2: de B até far_L2   (ex: B → A)
-        const result=extendTwoLines(feats[0],feats[1]);
+        // Calcula interseção pelos 2 últimos pontos de L1 e 2 primeiros de L2,
+        // retorna array completo: [...todosL1, B, ...todosL2]
+        const result=joinAtIntersection(feats[0],feats[1]);
         if(!result){setJoinMsg('❌ Linhas paralelas — sem interseção possível');return;}
-        const{ext1,ext2}=result;
 
-        const f1={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:ext1}};
-        const f2={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:ext2}};
-
-        // Camada com as duas linhas estendidas
-        try{
-          const fc={type:'FeatureCollection',features:[f1,f2]};
-          await rpc.invoke('createGeoJSONLayer',[{name:'Linhas estendidas',geojson:fc}]);
-          log(`2 linhas criadas: ${ext1.length} pts (C→B) e ${ext2.length} pts (B→A)`);
-        }catch{
-          const fc={type:'FeatureCollection',features:[
-            {...f1,properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2,fillOpacity:0}},
-            {...f2,properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2,fillOpacity:0}}
-          ]};
-          await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fc]);
-          log('Preview: 2 linhas estendidas','warn');
-        }
-
-        // srcFeat = caminho conectado [C…B…A] para uso futuro com offset/chanfro
-        const connected=[...ext1,...ext2.slice(1)];
-        feat={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:connected}};
+        feat={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:result.path}};
         isOpenResult=true;
-        log(`Caminho conectado: ${connected.length} vértices (pronto para offset/chanfro)`);
+
+        // Cria camada permanente no Giraffe com a polyline completa
+        try{
+          const fc={type:'FeatureCollection',features:[feat]};
+          await rpc.invoke('createGeoJSONLayer',[{name:'Linhas unidas',geojson:fc}]);
+          log(`Linhas unidas: ${result.path.length} vértices totais (inclui todos os originais + B)`);
+        }catch{
+          const fc={type:'FeatureCollection',features:[{...feat,properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2,fillOpacity:0}}]};
+          await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fc]);
+          log('Preview: polyline unida','warn');
+        }
+        log(`B (interseção): ${result.b.map(x=>x.toFixed(6)).join(', ')}`);
       }else{
         // N>2: polígono dos N cantos
         const res=joinLinesToCorners(feats);
@@ -820,7 +767,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v21 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v22 · KV Arquitetos')
     ),
 
     // Status
