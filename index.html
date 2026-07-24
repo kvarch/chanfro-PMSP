@@ -604,25 +604,14 @@ function App(){
       let feat,isOpenResult;
 
       if(feats.length===2){
-        // Para 2 linhas: polilinha aberta preservando todos os vértices originais
-        // + ponto de intersecção P inserido entre elas
-        // Resultado: [L1_all → P → L2_all]
-        const coords=join2Lines(feats[0],feats[1]);
-        if(!coords||coords.length<3){setJoinMsg('❌ Linhas paralelas — sem interseção possível');return;}
-        feat={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:coords}};
-        isOpenResult=true;
-        // Tenta criar camada permanente no Giraffe (mais visível que temp layer)
-        try{
-          const fc={type:'FeatureCollection',features:[feat]};
-          await rpc.invoke('createGeoJSONLayer',[{name:`Junção ${feats.length} linhas`,geojson:fc}]);
-          log(`Camada criada: polilinha com ${coords.length} vértices`);
-        }catch{
-          // Fallback: temp layer
-          const fc={type:'FeatureCollection',features:[{...feat,properties:{color:'#00ff88',stroke:'#00ff88',strokeWidth:3,fillOpacity:0}}]};
-          await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fc]);
-          log(`Preview: polilinha ${coords.length} vértices`,'warn');
-        }
-        log(`Junção: L1(${feats[0].geometry.coordinates.length} pts) + P + L2(${feats[1].geometry.coordinates.length} pts) = ${coords.length} vértices total`);
+        // join2Lines retorna [C, B, A] (far_L1 → P → far_L2)
+        // Fechamos o anel → polígono [C, B, A, C] = triângulo
+        const path=join2Lines(feats[0],feats[1]);
+        if(!path||path.length<3){setJoinMsg('❌ Linhas paralelas — sem interseção possível');return;}
+        const ring=[...path, path[0]];
+        feat={type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[ring]}};
+        isOpenResult=false;
+        log(`Junção: polígono ${path.length} vértices`);
       }else{
         // N>2: polígono dos N cantos
         const res=joinLinesToCorners(feats);
@@ -783,7 +772,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v19 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v20 · KV Arquitetos')
     ),
 
     // Status
