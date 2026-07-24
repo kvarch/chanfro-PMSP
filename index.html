@@ -426,37 +426,43 @@ function findLineIntersection(L1s,L1e,L2s,L2e){
 // Seleciona o pairing com menor extensão total (t1+t2 mínimo).
 
 // ── JUNÇÃO DE 2 LINHAS por interseção matemática ────────────────────────────
-// Algoritmo:
-//  1. Pega os 2 últimos pontos de L1  → define a reta diretora do final de L1
-//  2. Pega os 2 primeiros pontos de L2 → define a reta diretora do início de L2
-//  3. Calcula B = interseção dessas duas retas infinitas (regra de Cramer 2D)
-//  4. Retorna { path: [...todosL1, B, ...todosL2], b: B }
-//     → uma única polyline completa de far(L1) até B até far(L2)
+// Testa as 4 combinações de endpoints (nearB de L1 × nearB de L2).
+// Para cada: calcula B como interseção das retas infinitas pelo segmento final.
+// Seleciona a combinação onde |B-nearB1| + |B-nearB2| é mínimo.
+// Funciona independente da direção em que as linhas foram desenhadas.
 function joinAtIntersection(feat1,feat2){
   const c1=feat1.geometry.coordinates;
   const c2=feat2.geometry.coordinates;
   if(c1.length<2||c2.length<2)return null;
-
-  // Últimos 2 pontos de L1 → direção do final
-  const p1=c1[c1.length-2], p2=c1[c1.length-1];
-  // Primeiros 2 pontos de L2 → direção do início
-  const p3=c2[0], p4=c2[1];
-
-  const d1x=p2[0]-p1[0], d1y=p2[1]-p1[1];
-  const d2x=p4[0]-p3[0], d2y=p4[1]-p3[1];
-
-  // Regra de Cramer: p2 + t·d1 = p3 + s·d2  →  t
-  const det=d1x*d2y-d1y*d2x;
-  if(Math.abs(det)<1e-12)return null; // retas paralelas
-
-  const dx=p3[0]-p2[0], dy=p3[1]-p2[1];
-  const t=(dx*d2y-dy*d2x)/det;
-  const B=[p2[0]+t*d1x, p2[1]+t*d1y];
-
-  // Array completo: remove o último ponto de L1 e o primeiro de L2
-  // (ambos são os endpoints próximos de B, substituídos pelo ponto exato B)
-  // Resultado: [C, ...L1_intermediários, B, L2_intermediários..., A]
-  return{path:[...c1.slice(0,-1), B, ...c2.slice(1)], b:B};
+  const n1=c1.length,n2=c2.length;
+  // Candidatos de nearB: último ou primeiro vértice de cada linha
+  // path = todos os pontos SEM o nearB (substituído por B)
+  const e1s=[
+    {nearB:c1[n1-1],prev:c1[n1-2],path:c1.slice(0,-1)},
+    {nearB:c1[0],   prev:c1[1],   path:c1.slice(1).reverse()}
+  ];
+  const e2s=[
+    {nearB:c2[0],   next:c2[1],   path:c2.slice(1)},
+    {nearB:c2[n2-1],next:c2[n2-2],path:c2.slice(0,-1).reverse()}
+  ];
+  let best=null;
+  for(const e1 of e1s){
+    for(const e2 of e2s){
+      const d1x=e1.nearB[0]-e1.prev[0],d1y=e1.nearB[1]-e1.prev[1];
+      const d2x=e2.next[0]-e2.nearB[0],d2y=e2.next[1]-e2.nearB[1];
+      const det=d1x*d2y-d1y*d2x;
+      if(Math.abs(det)<1e-12)continue;
+      const dx=e2.nearB[0]-e1.nearB[0],dy=e2.nearB[1]-e1.nearB[1];
+      const t=(dx*d2y-dy*d2x)/det;
+      if(t<-0.01)continue; // B deve estar à frente de nearB1
+      const B=[e1.nearB[0]+t*d1x,e1.nearB[1]+t*d1y];
+      const dist=Math.hypot(B[0]-e1.nearB[0],B[1]-e1.nearB[1])
+               +Math.hypot(B[0]-e2.nearB[0],B[1]-e2.nearB[1]);
+      if(!best||dist<best.dist)best={B,dist,path:[...e1.path,B,...e2.path]};
+    }
+  }
+  if(!best)return null;
+  return{path:best.path,b:best.B};
 }
 
 function joinLinesToCorners(lineFeats){
@@ -769,7 +775,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v23 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v24 · KV Arquitetos')
     ),
 
     // Status
