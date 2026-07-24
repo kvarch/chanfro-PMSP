@@ -472,7 +472,34 @@ function join2Lines(feat1,feat2){
 
 
 
-// ── Para N>2 linhas: retorna apenas os N cantos (pontos de interseção) em lon/lat
+// ── Versão que retorna DUAS LINHAS SEPARADAS que se encontram em B
+// ext1 = linha completa L1 estendida até B (far_end → ... → B)
+// ext2 = linha completa L2 estendida até B (B → ... → far_end)
+// Cada pairing remove o endpoint ativo (substituído por B) e mantém o resto.
+function extendTwoLines(feat1,feat2){
+  const c1=feat1.geometry.coordinates,c2=feat2.geometry.coordinates;
+  if(c1.length<2||c2.length<2)return null;
+  const L1s=c1[0],L1e=c1[c1.length-1],L2s=c2[0],L2e=c2[c2.length-1];
+  const pairings=[
+    { p1:L1e,d1:vecNorm(vecSub(L1e,L1s)),p2:L2s,d2:vecNorm(vecSub(L2s,L2e)),
+      mk1:(pt)=>[...c1.slice(0,-1),pt], mk2:(pt)=>[pt,...c2.slice(1)] },
+    { p1:L1e,d1:vecNorm(vecSub(L1e,L1s)),p2:L2e,d2:vecNorm(vecSub(L2e,L2s)),
+      mk1:(pt)=>[...c1.slice(0,-1),pt], mk2:(pt)=>[pt,...c2.slice(0,-1).reverse()] },
+    { p1:L1s,d1:vecNorm(vecSub(L1s,L1e)),p2:L2s,d2:vecNorm(vecSub(L2s,L2e)),
+      mk1:(pt)=>[...c1.slice(1).reverse(),pt], mk2:(pt)=>[pt,...c2.slice(1)] },
+    { p1:L1s,d1:vecNorm(vecSub(L1s,L1e)),p2:L2e,d2:vecNorm(vecSub(L2e,L2s)),
+      mk1:(pt)=>[...c1.slice(1).reverse(),pt], mk2:(pt)=>[pt,...c2.slice(0,-1).reverse()] }
+  ];
+  let best=null;
+  for(const pair of pairings){
+    const pt=lineIntersect(pair.p1,pair.d1,pair.p2,pair.d2);if(!pt)continue;
+    const t1=vecDot(vecSub(pt,pair.p1),pair.d1),t2=vecDot(vecSub(pt,pair.p2),pair.d2);
+    if(t1>=-0.01&&t2>=-0.01){const total=t1+t2;if(!best||total<best.total)best={pt,total,pair};}
+  }
+  if(!best)return null;
+  return{ext1:best.pair.mk1(best.pt), ext2:best.pair.mk2(best.pt), b:best.pt};
+}
+
 function joinLinesToCorners(lineFeats){
   if(lineFeats.length<2)return{err:'Selecione ao menos 2 linhas'};
   const allCoords=lineFeats.flatMap(f=>f.geometry.coordinates);
@@ -604,14 +631,35 @@ function App(){
       let feat,isOpenResult;
 
       if(feats.length===2){
-        // join2Lines retorna [C, B, A] (far_L1 → P → far_L2)
-        // Fechamos o anel → polígono [C, B, A, C] = triângulo
-        const path=join2Lines(feats[0],feats[1]);
-        if(!path||path.length<3){setJoinMsg('❌ Linhas paralelas — sem interseção possível');return;}
-        const ring=[...path, path[0]];
-        feat={type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[ring]}};
-        isOpenResult=false;
-        log(`Junção: polígono ${path.length} vértices`);
+        // Cria DUAS LINHAS SEPARADAS e completas que se encontram em B:
+        // Linha 1: de far_L1 até B   (ex: C → B)
+        // Linha 2: de B até far_L2   (ex: B → A)
+        const result=extendTwoLines(feats[0],feats[1]);
+        if(!result){setJoinMsg('❌ Linhas paralelas — sem interseção possível');return;}
+        const{ext1,ext2}=result;
+
+        const f1={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:ext1}};
+        const f2={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:ext2}};
+
+        // Camada com as duas linhas estendidas
+        try{
+          const fc={type:'FeatureCollection',features:[f1,f2]};
+          await rpc.invoke('createGeoJSONLayer',[{name:'Linhas estendidas',geojson:fc}]);
+          log(`2 linhas criadas: ${ext1.length} pts (C→B) e ${ext2.length} pts (B→A)`);
+        }catch{
+          const fc={type:'FeatureCollection',features:[
+            {...f1,properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2,fillOpacity:0}},
+            {...f2,properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2,fillOpacity:0}}
+          ]};
+          await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fc]);
+          log('Preview: 2 linhas estendidas','warn');
+        }
+
+        // srcFeat = caminho conectado [C…B…A] para uso futuro com offset/chanfro
+        const connected=[...ext1,...ext2.slice(1)];
+        feat={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:connected}};
+        isOpenResult=true;
+        log(`Caminho conectado: ${connected.length} vértices (pronto para offset/chanfro)`);
       }else{
         // N>2: polígono dos N cantos
         const res=joinLinesToCorners(feats);
@@ -772,7 +820,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v20 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v21 · KV Arquitetos')
     ),
 
     // Status
