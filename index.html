@@ -453,8 +453,10 @@ function joinAtIntersection(feat1,feat2){
   const t=(dx*d2y-dy*d2x)/det;
   const B=[p2[0]+t*d1x, p2[1]+t*d1y];
 
-  // Array completo: todos os pontos de L1 + B + todos os pontos de L2
-  return{path:[...c1,B,...c2], b:B};
+  // Array completo: remove o último ponto de L1 e o primeiro de L2
+  // (ambos são os endpoints próximos de B, substituídos pelo ponto exato B)
+  // Resultado: [C, ...L1_intermediários, B, L2_intermediários..., A]
+  return{path:[...c1.slice(0,-1), B, ...c2.slice(1)], b:B};
 }
 
 function joinLinesToCorners(lineFeats){
@@ -767,7 +769,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v22 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v23 · KV Arquitetos')
     ),
 
     // Status
