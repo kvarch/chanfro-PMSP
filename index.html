@@ -434,25 +434,25 @@ function join2Lines(feat1,feat2){
   const rc2=c2.slice().reverse();
 
   const pairings=[
-    { // L1e → P → L2s   →  path: [L1s,...,L1e, P, L2s,...,L2e]
+    { // L1e e L2s ativos (removidos) → [L1s...L1_penúltimo, P, L2_2º...L2e]
       p1:L1e, d1:vecNorm(vecSub(L1e,L1s)),
       p2:L2s, d2:vecNorm(vecSub(L2s,L2e)),
-      mk:(pt)=>[...c1, pt, ...c2]
+      mk:(pt)=>[...c1.slice(0,-1), pt, ...c2.slice(1)]
     },
-    { // L1e → P ← L2e   →  path: [L1s,...,L1e, P, L2e,...,L2s]
+    { // L1e e L2e ativos (removidos) → [L1s...L1_penúltimo, P, L2_penúltimo...L2s]
       p1:L1e, d1:vecNorm(vecSub(L1e,L1s)),
       p2:L2e, d2:vecNorm(vecSub(L2e,L2s)),
-      mk:(pt)=>[...c1, pt, ...rc2]
+      mk:(pt)=>[...c1.slice(0,-1), pt, ...c2.slice(0,-1).reverse()]
     },
-    { // L1s → P → L2s   →  path: [L1e,...,L1s, P, L2s,...,L2e]
+    { // L1s e L2s ativos (removidos) → [L1e...L1_2º, P, L2_2º...L2e]
       p1:L1s, d1:vecNorm(vecSub(L1s,L1e)),
       p2:L2s, d2:vecNorm(vecSub(L2s,L2e)),
-      mk:(pt)=>[...rc1, pt, ...c2]
+      mk:(pt)=>[...c1.slice(1).reverse(), pt, ...c2.slice(1)]
     },
-    { // L1s → P ← L2e   →  path: [L1e,...,L1s, P, L2e,...,L2s]
+    { // L1s e L2e ativos (removidos) → [L1e...L1_2º, P, L2_penúltimo...L2s]
       p1:L1s, d1:vecNorm(vecSub(L1s,L1e)),
       p2:L2e, d2:vecNorm(vecSub(L2e,L2s)),
-      mk:(pt)=>[...rc1, pt, ...rc2]
+      mk:(pt)=>[...c1.slice(1).reverse(), pt, ...c2.slice(0,-1).reverse()]
     }
   ];
   let best=null;
@@ -783,7 +783,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v18 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v19 · KV Arquitetos')
     ),
 
     // Status
