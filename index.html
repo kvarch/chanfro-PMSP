@@ -565,6 +565,7 @@ function App(){
   // Join Lines
   const[joinFeats, setJoinFeats] =useState([]);   // captured line features
   const[joinMsg,   setJoinMsg]   =useState('');   // status/error message
+  const[editInPlace,setEditInPlace]=useState(false); // substitui as linhas originais em vez de criar camada nova
 
   const log=useCallback((m,t='ok')=>{
     const ts=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -611,20 +612,8 @@ function App(){
         // retorna array completo: [...todosL1, B, ...todosL2]
         const result=joinAtIntersection(feats[0],feats[1]);
         if(!result){setJoinMsg('❌ Linhas paralelas — sem interseção possível');return;}
-
         feat={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:result.path}};
         isOpenResult=true;
-
-        // Cria camada permanente no Giraffe com a polyline completa
-        try{
-          const fc={type:'FeatureCollection',features:[feat]};
-          await rpc.invoke('createGeoJSONLayer',[{name:'Linhas unidas',geojson:fc}]);
-          log(`Linhas unidas: ${result.path.length} vértices totais (inclui todos os originais + B)`);
-        }catch{
-          const fc={type:'FeatureCollection',features:[{...feat,properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2,fillOpacity:0}}]};
-          await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fc]);
-          log('Preview: polyline unida','warn');
-        }
         log(`B (interseção): ${result.b.map(x=>x.toFixed(6)).join(', ')}`);
       }else{
         // N>2: polígono dos N cantos
@@ -635,6 +624,36 @@ function App(){
         log(`Junção: ${feats.length} linhas → polígono ${res.n} vértices`);
       }
 
+      // ── Cria o resultado: editando os elementos originais (RawSection) OU camada nova ──
+      let editedInPlace=false;
+      if(editInPlace){
+        const ids=feats.map(f=>f.properties?.id).filter(Boolean);
+        if(ids.length===feats.length){
+          try{
+            await rpc.invoke('deleteRawSections',[ids]);
+            await rpc.invoke('createRawSection',[{...feat,properties:{...feat.properties,layerId:'default'}}]);
+            editedInPlace=true;
+            log(`✏️ ${ids.length} linha(s) original(is) substituída(s) pelo elemento unido (editável)`);
+          }catch(e){
+            log('⚠ Falha ao editar in-place ('+e.message+') — criando camada separada','warn');
+          }
+        }else{
+          log('⚠ Linhas selecionadas não têm ID de elemento editável (ex.: vieram de layer importada) — criando camada separada','warn');
+        }
+      }
+      if(!editInPlace||!editedInPlace){
+        try{
+          const fc={type:'FeatureCollection',features:[feat]};
+          await rpc.invoke('createGeoJSONLayer',[{name:'Linhas unidas',geojson:fc}]);
+          const vCount=isOpenResult?feat.geometry.coordinates.length:feat.geometry.coordinates[0].length;
+          log(`Camada "Linhas unidas" criada (${vCount} vértices)`);
+        }catch{
+          const fcC={type:'FeatureCollection',features:[{...feat,properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2,fillOpacity:0}}]};
+          await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fcC]);
+          log('Preview: polyline/polígono unido (camada temporária)','warn');
+        }
+      }
+
       // Preview verde
       const fc={type:'FeatureCollection',features:[{...feat,properties:{color:'#00ff88',stroke:'#00ff88',strokeWidth:2,fillOpacity:.08}}]};
       await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fc]);
@@ -643,10 +662,10 @@ function App(){
       setSrcFeat(feat);setIsOpen(isOpenResult);setSourceOrigin('join');
       setOffResult(null);setOffApplied(false);setSelVerts([]);
       setStatus({t:'ok',m:`${isOpenResult?'↗ Polilinha':'⬡ Polígono'} criado · pronto para offset/chanfro`});
-      setJoinMsg(`✓ ${isOpenResult?'Polilinha aberta':'Polígono fechado'} criado`);
+      setJoinMsg(`✓ ${isOpenResult?'Polilinha aberta':'Polígono fechado'} criado${editedInPlace?' (linhas originais substituídas)':''}`);
       setActiveTab('chanfro');
     }catch(e){setJoinMsg('❌ '+e.message);}
-  },[joinFeats,log]);
+  },[joinFeats,editInPlace,log]);
   const getBase=useCallback(()=>{
     if(target==='direct'&&srcFeat)return directBaseResult(srcFeat,isOpen);
     return offResult;
@@ -787,7 +806,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v25 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v26 · KV Arquitetos')
     ),
 
     // Status
@@ -839,14 +858,41 @@ function App(){
           },joinMsg),
 
           h('button',{
+            onClick:()=>setEditInPlace(v=>!v),
+            style:{
+              display:'flex',alignItems:'center',gap:'8px',background:'#0d0f18',
+              border:`1px solid ${editInPlace?'#00ACCD55':'#252838'}`,borderRadius:'7px',
+              padding:'8px 10px',cursor:'pointer',marginTop:'2px',textAlign:'left'
+            }
+          },
+            h('span',{style:{
+              width:'30px',height:'17px',borderRadius:'9px',flexShrink:0,position:'relative',
+              background:editInPlace?'#00ACCD':'#252838',transition:'background .15s'
+            }},
+              h('span',{style:{
+                position:'absolute',top:'2px',left:editInPlace?'15px':'2px',
+                width:'13px',height:'13px',borderRadius:'50%',background:'#dde3ee',transition:'left .15s'
+              }})
+            ),
+            h('span',null,
+              h('div',{style:{fontSize:'11px',fontWeight:600,color:editInPlace?'#00ACCD':'#99b0c4'}},'✏️ Editar linhas originais'),
+              h('div',{style:{fontSize:'10px',color:'#55607a',marginTop:'1px'}},editInPlace
+                ?'As linhas selecionadas serão apagadas e substituídas pelo elemento unido'
+                :'Mantém as linhas originais e cria um elemento novo')
+            )
+          ),
+
+          h('button',{
             className:'bp ibtn',
             onClick:doJoin,
             disabled:joinFeats.length<2,
             style:{marginTop:'4px'}
-          },h('span',{className:'bic'},'⋈'),'Calcular interseções e criar geometria'),
+          },h('span',{className:'bic'},'⋈'),editInPlace?'Calcular e substituir linhas':'Calcular interseções e criar geometria'),
 
           h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'4px',lineHeight:'1.5'}},
-            'Ao concluir, a geometria é enviada automaticamente para a aba "Recuo & Chanfro".')
+            editInPlace
+              ?'Se as linhas não forem elementos editáveis (ex.: vieram de camada importada), o app cria uma camada separada automaticamente.'
+              :'Ao concluir, a geometria é enviada automaticamente para a aba "Recuo & Chanfro".')
         )
       )
     ),
