@@ -555,11 +555,10 @@ function App(){
   // Operation type
   const[opType,   setOpType]   =useState('chamfer'); // 'chamfer'|'fillet'
   const[opSize,   setOpSize]   =useState('3.50');     // size in metres
-  // Target
-  const[target,   setTarget]   =useState('offset');   // 'direct'|'offset'
   // Offset params
   const[offDist,  setOffDist]  =useState('5.00');
   const[offDir,   setOffDir]   =useState('inward');
+  const[offAlsoChanfro,setOffAlsoChanfro]=useState(false); // aplica chanfro/fillet junto ao salvar o offset
   // Vertex selection
   const[vxMode,   setVxMode]   =useState('all');
   const[selVerts, setSelVerts] =useState([]);
@@ -587,7 +586,7 @@ function App(){
   // (permite apagar/substituir em cadeia através das abas). [] = não editável/desconhecido.
   const[activeRawIds,setActiveRawIds]=useState([]);
   const[offSaveMode,   setOffSaveMode]   =useState('copy'); // 'copy'|'delete' — ao salvar o offset
-  const[chanfroSaveMode,setChanfroSaveMode]=useState('copy'); // 'copy'|'delete' — ao gerar o chanfro/fillet
+  const[chanfroEditInPlace,setChanfroEditInPlace]=useState(false); // edita a geometria original em vez de criar cópia
 
   const log=useCallback((m,t='ok')=>{
     const ts=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -692,9 +691,9 @@ function App(){
     }catch(e){setJoinMsg('❌ '+e.message);}
   },[joinFeats,editInPlace,log]);
   const getBase=useCallback(()=>{
-    if(target==='direct'&&srcFeat)return directBaseResult(srcFeat,isOpen);
-    return offResult;
-  },[target,srcFeat,isOpen,offResult]);
+    if(!srcFeat)return null;
+    return directBaseResult(srcFeat,isOpen);
+  },[srcFeat,isOpen]);
 
   // ── Vertex arms ──
   useEffect(()=>{
@@ -707,7 +706,7 @@ function App(){
       Array.from({length:n},(_,i)=>vertexCanProcess(mOrig,mOff,i,sz,opType,io,id));
     setVxCount(n);setVxArms(arms);
     setSelVerts(p=>p.filter(i=>i<n&&arms[i]));
-  },[srcFeat,offResult,opSize,opType,target,isOpen]);
+  },[srcFeat,opSize,opType,isOpen]);
 
   // ── Capture ──
   const capture=useCallback(async()=>{
@@ -754,19 +753,19 @@ function App(){
   // ── Salvar Offset no mapa (cópia ou substituindo o original) ──
   // Importante: NÃO altera srcFeat/offResult — o par mOrig/mOff precisa
   // continuar disponível para o chanfro PMSP exato usar o bisector correto.
-  const saveOffsetAsCopy=useCallback(async(result,dist)=>{
+  const saveOffsetAsCopy=useCallback(async(feature,name)=>{
     try{
-      const created=await rpc.invoke('createRawSection',[{...result.feature,properties:{...result.feature.properties,layerId:'default'}}]);
-      log('💾 Cópia do offset salva no mapa (elemento editável)');
+      const created=await rpc.invoke('createRawSection',[{...feature,properties:{...feature.properties,layerId:'default'}}]);
+      log(`💾 "${name}" salvo no mapa (elemento editável)`);
       return extractCreatedId(created);
     }catch{
       try{
-        await rpc.invoke('createGeoJSONLayer',[{name:`Offset ${dist}m`,geojson:{type:'FeatureCollection',features:[result.feature]}}]);
-        log(`Camada "Offset ${dist}m" criada`);
+        await rpc.invoke('createGeoJSONLayer',[{name,geojson:{type:'FeatureCollection',features:[feature]}}]);
+        log(`Camada "${name}" criada`);
       }catch{
-        const fcC={type:'FeatureCollection',features:[{...result.feature,properties:{color:'#f5a623',stroke:'#f5a623',strokeWidth:2}}]};
-        await rpc.invoke('addTempLayerGeoJSON',[`Offset ${dist}m`,fcC]);
-        log(`Camada temporária "Offset ${dist}m"`,'warn');
+        const fcC={type:'FeatureCollection',features:[{...feature,properties:{color:'#f5a623',stroke:'#f5a623',strokeWidth:2}}]};
+        await rpc.invoke('addTempLayerGeoJSON',[name,fcC]);
+        log(`Camada temporária "${name}"`,'warn');
       }
       return null;
     }
@@ -775,26 +774,40 @@ function App(){
   const saveOffset=useCallback(async()=>{
     if(!offResult){log('Calcule o offset primeiro','warn');return;}
     const dist=parseFloat(offDist);
+
+    let finalFeature=offResult.feature;
+    let name=`Offset ${dist}m`;
+
+    if(offAlsoChanfro){
+      const sz=parseFloat(opSize);
+      if(isNaN(sz)||sz<=0){log('Tamanho do chanfro/fillet inválido — configure na aba "Chanfro & Fillet"','err');return;}
+      const idx=vxMode==='select'&&selVerts.length>0?selVerts:null;
+      finalFeature=processFeature(offResult,sz,opType,idx);
+      name=`${opType==='chamfer'?'Chanfro':'Fillet'} ${sz}m (offset ${dist}m)`;
+      log(`Aplicando ${opType==='chamfer'?'chanfro':'fillet'} ${sz}m sobre o offset, usando as configurações da aba Chanfro & Fillet…`);
+    }
+
     try{
       if(offSaveMode==='delete'&&activeRawIds.length>0){
         try{
           await rpc.invoke('deleteRawSections',[activeRawIds]);
-          const created=await rpc.invoke('createRawSection',[{...offResult.feature,properties:{...offResult.feature.properties,layerId:'default'}}]);
+          const created=await rpc.invoke('createRawSection',[{...finalFeature,properties:{...finalFeature.properties,layerId:'default'}}]);
           const newId=extractCreatedId(created);
           setActiveRawIds(newId?[newId]:[]);
-          log(newId?'✏️ Original substituído pelo offset (editável)':'Original substituído, mas ID do novo elemento não confirmado — próxima etapa criará cópia','warn');
+          log(newId?`✏️ Original substituído por "${name}" (editável)`:'Original substituído, mas ID do novo elemento não confirmado — próxima etapa criará cópia','warn');
         }catch(e){
           log('⚠ Falha ao substituir ('+e.message+') — salvando como cópia','warn');
-          const newId=await saveOffsetAsCopy(offResult,dist);
+          const newId=await saveOffsetAsCopy(finalFeature,name);
           setActiveRawIds(newId?[newId]:[]);
         }
       }else{
-        const newId=await saveOffsetAsCopy(offResult,dist);
+        const newId=await saveOffsetAsCopy(finalFeature,name);
         setActiveRawIds(newId?[newId]:activeRawIds);
       }
-      setStatus({t:'ok',m:'Offset salvo no mapa'});
-    }catch(e){log('Erro ao salvar offset: '+e.message,'err');}
-  },[offResult,offDist,offSaveMode,activeRawIds,saveOffsetAsCopy,log]);
+      setStatus({t:'ok',m:offAlsoChanfro?'Offset + chanfro/fillet salvos no mapa':'Offset salvo no mapa'});
+      await rpc.invoke('addTempLayerGeoJSON',[PV_OFF,{type:'FeatureCollection',features:[]}]);
+    }catch(e){log('Erro ao salvar: '+e.message,'err');}
+  },[offResult,offDist,offSaveMode,offAlsoChanfro,opSize,opType,vxMode,selVerts,activeRawIds,saveOffsetAsCopy,log]);
 
 
   const preview=useCallback(async()=>{
@@ -810,7 +823,10 @@ function App(){
     }catch(e){log('Preview erro: '+e.message,'err');}
   },[getBase,opSize,opType,vxMode,selVerts,log]);
 
-  useEffect(()=>{if(getBase())preview();},[opSize,opType,selVerts,vxMode,target,offResult,srcFeat]);
+  useEffect(()=>{
+    if(activeTab==='chanfro'&&getBase())preview();
+    else rpc.invoke('addTempLayerGeoJSON',[PV_RES,{type:'FeatureCollection',features:[]}]).catch(()=>{});
+  },[opSize,opType,selVerts,vxMode,srcFeat,activeTab]);
 
   // ── Apply Final ──
   const applyFinal=useCallback(async()=>{
@@ -822,9 +838,7 @@ function App(){
     try{
       const idx=vxMode==='select'&&selVerts.length>0?selVerts:null;
       const result=processFeature(base,sz,opType,idx);
-      const opLabel=opType==='chamfer'?`Chanfro ${sz}m`:`Fillet R${sz}m`;
-      const tgtLabel=target==='direct'?'direto':`offset ${parseFloat(offDist)}m`;
-      const name=`${opLabel} (${tgtLabel})`;
+      const name=opType==='chamfer'?`Chanfro ${sz}m`:`Fillet R${sz}m`;
 
       const saveAsCopy=async()=>{
         try{
@@ -845,7 +859,7 @@ function App(){
       };
 
       let newId=null;
-      if(chanfroSaveMode==='delete'&&activeRawIds.length>0){
+      if(chanfroEditInPlace&&activeRawIds.length>0){
         try{
           await rpc.invoke('deleteRawSections',[activeRawIds]);
           const created=await rpc.invoke('createRawSection',[{...result,properties:{...result.properties,layerId:'default'}}]);
@@ -856,16 +870,18 @@ function App(){
           newId=await saveAsCopy();
         }
       }else{
+        if(chanfroEditInPlace&&!activeRawIds.length)
+          log('⚠ Geometria atual não tem elemento editável conhecido — salvando como cópia','warn');
         newId=await saveAsCopy();
       }
-      setActiveRawIds(newId?[newId]:chanfroSaveMode==='delete'?[]:activeRawIds);
+      setActiveRawIds(newId?[newId]:chanfroEditInPlace?[]:activeRawIds);
 
       setStatus({t:'ok',m:'Resultado criado!'});
       await rpc.invoke('addTempLayerGeoJSON',[PV_OFF,{type:'FeatureCollection',features:[]}]);
       await rpc.invoke('addTempLayerGeoJSON',[PV_RES,{type:'FeatureCollection',features:[]}]);
     }catch(e){log('Falha: '+e.message,'err');setStatus({t:'err',m:'Erro ao salvar'});}
     finally{setRunning(false);}
-  },[getBase,opSize,opType,offDist,target,vxMode,selVerts,chanfroSaveMode,activeRawIds,log]);
+  },[getBase,opSize,opType,vxMode,selVerts,chanfroEditInPlace,activeRawIds,log]);
 
   const clearPreviews=useCallback(async()=>{
     try{
@@ -882,8 +898,7 @@ function App(){
   const hasSrc=!!srcFeat;
   const base=getBase();
   const hasBase=!!base;
-  const needsOffset=target==='offset';
-  const canGenerate=hasBase&&szValid&&!running&&(target==='direct'||offApplied);
+  const canGenerate=hasBase&&szValid&&!running;
 
   const activeVerts=vxMode==='all'?vxArms.filter(Boolean).length:selVerts.filter(i=>vxArms[i]).length;
 
@@ -931,7 +946,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v27 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v28 · KV Arquitetos')
     ),
 
     // Status
@@ -1079,13 +1094,39 @@ function App(){
         h('div',{className:'panel-header'},
           h('span',{className:'sb sb-act'},'💾'),'Salvar no mapa'),
         h('div',{className:'panel-body'},
+          h('button',{
+            onClick:()=>setOffAlsoChanfro(v=>!v),
+            style:{
+              display:'flex',alignItems:'center',gap:'8px',background:'#0d0f18',
+              border:`1px solid ${offAlsoChanfro?'#00ACCD55':'#252838'}`,borderRadius:'7px',
+              padding:'8px 10px',cursor:'pointer',width:'100%',textAlign:'left',marginBottom:'8px'
+            }
+          },
+            h('span',{style:{
+              width:'30px',height:'17px',borderRadius:'9px',flexShrink:0,position:'relative',
+              background:offAlsoChanfro?'#00ACCD':'#252838',transition:'background .15s'
+            }},
+              h('span',{style:{
+                position:'absolute',top:'2px',left:offAlsoChanfro?'15px':'2px',
+                width:'13px',height:'13px',borderRadius:'50%',background:'#dde3ee',transition:'left .15s'
+              }})
+            ),
+            h('span',null,
+              h('div',{style:{fontSize:'11px',fontWeight:600,color:offAlsoChanfro?'#00ACCD':'#99b0c4'}},'🔧 Aplicar chanfro/fillet junto'),
+              h('div',{style:{fontSize:'10px',color:'#55607a',marginTop:'1px'}},
+                'Usará as configurações da aba "Chanfro & Fillet" (tipo, tamanho e vértices).')
+            )
+          ),
+          offAlsoChanfro&&h('div',{style:{fontSize:'11px',color:'#3a4155',padding:'6px 8px',background:'#0d0f18',borderRadius:'6px',border:'1px solid #1e2232',marginBottom:'8px'}},
+            szValid
+              ?`Config. atual: ${opType==='chamfer'?'✂ Chanfro':'⌒ Fillet'} ${szNum}m · ${vxMode==='all'?'todos os vértices':`${selVerts.length} vértice(s) selecionado(s)`}`
+              :h('span',{style:{color:'#f5a623'}},'⚠ Tamanho inválido na aba Chanfro & Fillet — ajuste antes de salvar.')
+          ),
           renderCopyDeleteToggle(offSaveMode,setOffSaveMode,
-            'A geometria original permanece intacta; o offset é salvo como um novo elemento.',
-            'A geometria original é apagada e substituída pelo elemento com offset.'),
-          h('button',{className:'bp ibtn',onClick:saveOffset,style:{marginTop:'8px'}},
-            h('span',{className:'bic'},'💾'),'Salvar offset no mapa'),
-          h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'6px',lineHeight:'1.5'}},
-            'Opcional: você pode ir direto para a aba "Chanfro & Fillet" sem salvar — o offset calculado aqui já fica disponível como base lá.')
+            'A geometria original permanece intacta; o resultado é salvo como um novo elemento.',
+            'A geometria original é apagada e substituída pelo resultado.'),
+          h('button',{className:'bp ibtn',onClick:saveOffset,disabled:offAlsoChanfro&&!szValid,style:{marginTop:'8px'}},
+            h('span',{className:'bic'},'💾'),offAlsoChanfro?'Salvar offset + chanfro/fillet no mapa':'Salvar offset no mapa')
         )
       )
     ),
@@ -1120,36 +1161,16 @@ function App(){
           ),
           szValid&&h('div',{className:'fh'},opType==='chamfer'
             ?`Cada braço: ${(szNum/2).toFixed(2)}m a partir do vértice`
-            :`Comprimento do arco por quina: ~${(szNum*Math.PI/2).toFixed(2)}m (90°)`)
-        )
-      ),
-
-      // ── Base ────────────────────────────────────────
-      h('div',{className:'panel'},
-        h('div',{className:'panel-header'},
-          h('span',{className:`sb ${!hasSrc?'sb-off':'sb-act'}`},'2'),'Base'),
-        h('div',{className:'panel-body'},
-          h('div',{className:'tr'},
-            h('button',{className:`tb ibtn ${target==='direct'?'on':''}`,disabled:!hasSrc,
-              onClick:()=>setTarget('direct')},
-              h('span',{className:'bic'},'⊙'),'Original'),
-            h('button',{className:`tb ibtn ${target==='offset'?'on':''}`,disabled:!hasSrc||!offResult,
-              onClick:()=>setTarget('offset')},
-              h('span',{className:'bic'},'⤢'),'Com offset')
-          ),
-          target==='offset'&&offResult&&h('div',{style:{fontSize:'11px',color:'#3a4155',marginTop:'6px'}},
-            `Usando offset de ${parseFloat(offDist)}m (${offDir==='inward'?'interno':'externo'}) calculado na aba Offset.`),
-          target==='offset'&&!offResult&&h('div',{style:{fontSize:'10px',color:'#f5a62388',marginTop:'6px'}},
-            'Calcule um offset na aba "Offset" primeiro.'),
-          target==='direct'&&h('div',{style:{fontSize:'11px',color:'#3a4155',marginTop:'6px'}},
-            `${opType==='chamfer'?'Chanfro':'Fillet'} aplicado diretamente na geometria original — sem recuo.`)
+            :`Comprimento do arco por quina: ~${(szNum*Math.PI/2).toFixed(2)}m (90°)`),
+          h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'6px',lineHeight:'1.5'}},
+            'Aplicado diretamente na geometria capturada. Para aplicar sobre um offset, use a aba "Offset" e marque "Aplicar chanfro/fillet junto".')
         )
       ),
 
       // ── Vértices ──────────────────────────────────────
       h('div',{className:'panel'},
         h('div',{className:'panel-header'},
-          h('span',{className:`sb ${!hasBase?'sb-off':'sb-act'}`},'3'),'Vértices'),
+          h('span',{className:`sb ${!hasBase?'sb-off':'sb-act'}`},'2'),'Vértices'),
         h('div',{className:'panel-body'},
           h('div',{className:'tr',style:{marginBottom:'8px'}},
             h('button',{className:`tb ibtn ${vxMode==='all'?'on':''}`,onClick:()=>setVxMode('all')},
@@ -1185,11 +1206,34 @@ function App(){
         h('div',{className:'panel-header'},
           h('span',{className:'sb sb-act'},'💾'),'Salvar resultado'),
         h('div',{className:'panel-body'},
-          renderCopyDeleteToggle(chanfroSaveMode,setChanfroSaveMode,
-            'A geometria base permanece intacta; o resultado é salvo como um novo elemento.',
-            'A geometria base é apagada e substituída pelo resultado do chanfro/fillet.'),
+          h('button',{
+            onClick:()=>setChanfroEditInPlace(v=>!v),
+            style:{
+              display:'flex',alignItems:'center',gap:'8px',background:'#0d0f18',
+              border:`1px solid ${chanfroEditInPlace?'#00ACCD55':'#252838'}`,borderRadius:'7px',
+              padding:'8px 10px',cursor:'pointer',width:'100%',textAlign:'left'
+            }
+          },
+            h('span',{style:{
+              width:'30px',height:'17px',borderRadius:'9px',flexShrink:0,position:'relative',
+              background:chanfroEditInPlace?'#00ACCD':'#252838',transition:'background .15s'
+            }},
+              h('span',{style:{
+                position:'absolute',top:'2px',left:chanfroEditInPlace?'15px':'2px',
+                width:'13px',height:'13px',borderRadius:'50%',background:'#dde3ee',transition:'left .15s'
+              }})
+            ),
+            h('span',null,
+              h('div',{style:{fontSize:'11px',fontWeight:600,color:chanfroEditInPlace?'#00ACCD':'#99b0c4'}},'✏️ Editar geometria original'),
+              h('div',{style:{fontSize:'10px',color:'#55607a',marginTop:'1px'}},chanfroEditInPlace
+                ?'A geometria original será apagada e substituída pelo resultado'
+                :'Mantém a geometria original e cria um elemento novo')
+            )
+          ),
           h('button',{className:'bp ibtn',onClick:applyFinal,disabled:!canGenerate,style:{marginTop:'8px'}},
-            h('span',{className:'bic'},running?'⏳':'✓'),running?'Salvando…':`Gerar ${opType==='chamfer'?'chanfro':'fillet'}`)
+            h('span',{className:'bic'},running?'⏳':'✓'),running?'Salvando…':`Gerar ${opType==='chamfer'?'chanfro':'fillet'}`),
+          chanfroEditInPlace&&!activeRawIds.length&&h('div',{style:{fontSize:'10px',color:'#f5a62388',marginTop:'6px'}},
+            '⚠ Geometria atual sem elemento editável conhecido — será salva como cópia mesmo assim.')
         )
       ),
 
