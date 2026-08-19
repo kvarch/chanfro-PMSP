@@ -529,6 +529,23 @@ function autoOrderLines(lineFeats){
 }
 
 
+// Tenta extrair o ID do elemento recém-criado a partir do retorno do RPC.
+// Formato exato de retorno de createRawSection não é 100% documentado —
+// tenta os formatos mais comuns e retorna null se não conseguir identificar.
+function extractCreatedId(res){
+  if(!res)return null;
+  if(typeof res==='string')return res;
+  if(res.id)return res.id;
+  if(res.properties?.id)return res.properties.id;
+  if(res.feature?.properties?.id)return res.feature.properties.id;
+  if(Array.isArray(res)&&res.length){
+    const f=res[0];
+    if(typeof f==='string')return f;
+    return f?.id||f?.properties?.id||null;
+  }
+  return null;
+}
+
 const PV_OFF='__oc_off__',PV_RES='__oc_res__';
 
 // ═══════════════════════════════════════════════════════
@@ -566,6 +583,11 @@ function App(){
   const[joinFeats, setJoinFeats] =useState([]);   // captured line features
   const[joinMsg,   setJoinMsg]   =useState('');   // status/error message
   const[editInPlace,setEditInPlace]=useState(false); // substitui as linhas originais em vez de criar camada nova
+  // ID(s) do RawSection que representa atualmente a geometria ativa no mapa
+  // (permite apagar/substituir em cadeia através das abas). [] = não editável/desconhecido.
+  const[activeRawIds,setActiveRawIds]=useState([]);
+  const[offSaveMode,   setOffSaveMode]   =useState('copy'); // 'copy'|'delete' — ao salvar o offset
+  const[chanfroSaveMode,setChanfroSaveMode]=useState('copy'); // 'copy'|'delete' — ao gerar o chanfro/fillet
 
   const log=useCallback((m,t='ok')=>{
     const ts=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -625,13 +647,14 @@ function App(){
       }
 
       // ── Cria o resultado: editando os elementos originais (RawSection) OU camada nova ──
-      let editedInPlace=false;
+      let editedInPlace=false,newId=null;
       if(editInPlace){
         const ids=feats.map(f=>f.properties?.id).filter(Boolean);
         if(ids.length===feats.length){
           try{
             await rpc.invoke('deleteRawSections',[ids]);
-            await rpc.invoke('createRawSection',[{...feat,properties:{...feat.properties,layerId:'default'}}]);
+            const created=await rpc.invoke('createRawSection',[{...feat,properties:{...feat.properties,layerId:'default'}}]);
+            newId=extractCreatedId(created);
             editedInPlace=true;
             log(`✏️ ${ids.length} linha(s) original(is) substituída(s) pelo elemento unido (editável)`);
           }catch(e){
@@ -653,6 +676,8 @@ function App(){
           log('Preview: polyline/polígono unido (camada temporária)','warn');
         }
       }
+      setActiveRawIds(editedInPlace&&newId?[newId]:[]);
+      if(editedInPlace&&!newId)log('Elemento substituído, mas não foi possível confirmar o novo ID — próximas etapas criarão cópias','warn');
 
       // Preview verde
       const fc={type:'FeatureCollection',features:[{...feat,properties:{color:'#00ff88',stroke:'#00ff88',strokeWidth:2,fillOpacity:.08}}]};
@@ -663,7 +688,7 @@ function App(){
       setOffResult(null);setOffApplied(false);setSelVerts([]);
       setStatus({t:'ok',m:`${isOpenResult?'↗ Polilinha':'⬡ Polígono'} criado · pronto para offset/chanfro`});
       setJoinMsg(`✓ ${isOpenResult?'Polilinha aberta':'Polígono fechado'} criado${editedInPlace?' (linhas originais substituídas)':''}`);
-      setActiveTab('chanfro');
+      setActiveTab('offset');
     }catch(e){setJoinMsg('❌ '+e.message);}
   },[joinFeats,editInPlace,log]);
   const getBase=useCallback(()=>{
@@ -702,6 +727,7 @@ function App(){
       const coords=io?feature.geometry.coordinates:feature.geometry.coordinates[0];
       const n=io?coords.length:coords.length-1;
       setSrcFeat(feature);setIsOpen(io);setSourceOrigin('capture');setOffResult(null);setOffApplied(false);setSelVerts([]);
+      setActiveRawIds(feature.properties?.id?[feature.properties.id]:[]);
       setStatus({t:'ok',m:`${io?'↗ Polilinha aberta':'⬡ Polígono fechado'} · ${n} ${io?'pts':'vértices'}`});
       log(`Capturado: ${io?'aberta':'fechado'} · ${n} vértices`);
     }catch(e){log('Erro: '+e.message,'err');setStatus({t:'err',m:'Erro ao ler seleção'});}
@@ -725,7 +751,52 @@ function App(){
     }catch(e){log('Erro offset: '+e.message,'err');}
   },[srcFeat,offDist,offDir,isOpen,log]);
 
-  // ── Preview ──
+  // ── Salvar Offset no mapa (cópia ou substituindo o original) ──
+  // Importante: NÃO altera srcFeat/offResult — o par mOrig/mOff precisa
+  // continuar disponível para o chanfro PMSP exato usar o bisector correto.
+  const saveOffsetAsCopy=useCallback(async(result,dist)=>{
+    try{
+      const created=await rpc.invoke('createRawSection',[{...result.feature,properties:{...result.feature.properties,layerId:'default'}}]);
+      log('💾 Cópia do offset salva no mapa (elemento editável)');
+      return extractCreatedId(created);
+    }catch{
+      try{
+        await rpc.invoke('createGeoJSONLayer',[{name:`Offset ${dist}m`,geojson:{type:'FeatureCollection',features:[result.feature]}}]);
+        log(`Camada "Offset ${dist}m" criada`);
+      }catch{
+        const fcC={type:'FeatureCollection',features:[{...result.feature,properties:{color:'#f5a623',stroke:'#f5a623',strokeWidth:2}}]};
+        await rpc.invoke('addTempLayerGeoJSON',[`Offset ${dist}m`,fcC]);
+        log(`Camada temporária "Offset ${dist}m"`,'warn');
+      }
+      return null;
+    }
+  },[log]);
+
+  const saveOffset=useCallback(async()=>{
+    if(!offResult){log('Calcule o offset primeiro','warn');return;}
+    const dist=parseFloat(offDist);
+    try{
+      if(offSaveMode==='delete'&&activeRawIds.length>0){
+        try{
+          await rpc.invoke('deleteRawSections',[activeRawIds]);
+          const created=await rpc.invoke('createRawSection',[{...offResult.feature,properties:{...offResult.feature.properties,layerId:'default'}}]);
+          const newId=extractCreatedId(created);
+          setActiveRawIds(newId?[newId]:[]);
+          log(newId?'✏️ Original substituído pelo offset (editável)':'Original substituído, mas ID do novo elemento não confirmado — próxima etapa criará cópia','warn');
+        }catch(e){
+          log('⚠ Falha ao substituir ('+e.message+') — salvando como cópia','warn');
+          const newId=await saveOffsetAsCopy(offResult,dist);
+          setActiveRawIds(newId?[newId]:[]);
+        }
+      }else{
+        const newId=await saveOffsetAsCopy(offResult,dist);
+        setActiveRawIds(newId?[newId]:activeRawIds);
+      }
+      setStatus({t:'ok',m:'Offset salvo no mapa'});
+    }catch(e){log('Erro ao salvar offset: '+e.message,'err');}
+  },[offResult,offDist,offSaveMode,activeRawIds,saveOffsetAsCopy,log]);
+
+
   const preview=useCallback(async()=>{
     const base=getBase();
     if(!base)return;
@@ -754,21 +825,47 @@ function App(){
       const opLabel=opType==='chamfer'?`Chanfro ${sz}m`:`Fillet R${sz}m`;
       const tgtLabel=target==='direct'?'direto':`offset ${parseFloat(offDist)}m`;
       const name=`${opLabel} (${tgtLabel})`;
-      const fc={type:'FeatureCollection',features:[result]};
-      try{
-        await rpc.invoke('createGeoJSONLayer',[{name,geojson:fc}]);
-        log(`Camada "${name}" criada!`);
-      }catch{
-        const fcC={type:'FeatureCollection',features:[{...result,properties:{...result.properties,color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2}}]};
-        await rpc.invoke('addTempLayerGeoJSON',[name,fcC]);
-        log(`Camada temporária "${name}"`,  'warn');
+
+      const saveAsCopy=async()=>{
+        try{
+          const created=await rpc.invoke('createRawSection',[{...result,properties:{...result.properties,layerId:'default'}}]);
+          log(`💾 "${name}" salvo como elemento editável`);
+          return extractCreatedId(created);
+        }catch{
+          try{
+            await rpc.invoke('createGeoJSONLayer',[{name,geojson:{type:'FeatureCollection',features:[result]}}]);
+            log(`Camada "${name}" criada!`);
+          }catch{
+            const fcC={type:'FeatureCollection',features:[{...result,properties:{...result.properties,color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2}}]};
+            await rpc.invoke('addTempLayerGeoJSON',[name,fcC]);
+            log(`Camada temporária "${name}"`,'warn');
+          }
+          return null;
+        }
+      };
+
+      let newId=null;
+      if(chanfroSaveMode==='delete'&&activeRawIds.length>0){
+        try{
+          await rpc.invoke('deleteRawSections',[activeRawIds]);
+          const created=await rpc.invoke('createRawSection',[{...result,properties:{...result.properties,layerId:'default'}}]);
+          newId=extractCreatedId(created);
+          log(newId?`✏️ Original substituído por "${name}"`:'Substituído, mas ID do novo elemento não confirmado','warn');
+        }catch(e){
+          log('⚠ Falha ao substituir ('+e.message+') — salvando como cópia','warn');
+          newId=await saveAsCopy();
+        }
+      }else{
+        newId=await saveAsCopy();
       }
+      setActiveRawIds(newId?[newId]:chanfroSaveMode==='delete'?[]:activeRawIds);
+
       setStatus({t:'ok',m:'Resultado criado!'});
       await rpc.invoke('addTempLayerGeoJSON',[PV_OFF,{type:'FeatureCollection',features:[]}]);
       await rpc.invoke('addTempLayerGeoJSON',[PV_RES,{type:'FeatureCollection',features:[]}]);
     }catch(e){log('Falha: '+e.message,'err');setStatus({t:'err',m:'Erro ao salvar'});}
     finally{setRunning(false);}
-  },[getBase,opSize,opType,offDist,target,vxMode,selVerts,log]);
+  },[getBase,opSize,opType,offDist,target,vxMode,selVerts,chanfroSaveMode,activeRawIds,log]);
 
   const clearPreviews=useCallback(async()=>{
     try{
@@ -799,6 +896,34 @@ function App(){
     setSelVerts(p=>p.length===av.length?[]:av);
   };
 
+  // ── UI helper: cópia (padrão) vs apagar original ──
+  const renderCopyDeleteToggle=(mode,setMode,copyDesc,deleteDesc)=>{
+    const isDel=mode==='delete';
+    return h('button',{
+      onClick:()=>setMode(isDel?'copy':'delete'),
+      style:{
+        display:'flex',alignItems:'center',gap:'8px',background:'#0d0f18',
+        border:`1px solid ${isDel?'#f5a62355':'#252838'}`,borderRadius:'7px',
+        padding:'8px 10px',cursor:'pointer',width:'100%',textAlign:'left'
+      }
+    },
+      h('span',{style:{
+        width:'30px',height:'17px',borderRadius:'9px',flexShrink:0,position:'relative',
+        background:isDel?'#f5a623':'#252838',transition:'background .15s'
+      }},
+        h('span',{style:{
+          position:'absolute',top:'2px',left:isDel?'15px':'2px',
+          width:'13px',height:'13px',borderRadius:'50%',background:'#dde3ee',transition:'left .15s'
+        }})
+      ),
+      h('span',null,
+        h('div',{style:{fontSize:'11px',fontWeight:600,color:isDel?'#f5a623':'#99b0c4'}},
+          isDel?'🗑️ Apagar original':'📄 Cópia (padrão)'),
+        h('div',{style:{fontSize:'10px',color:'#55607a',marginTop:'1px'}},isDel?deleteDesc:copyDesc)
+      )
+    );
+  };
+
   // ── Render ──
   return h('div',{className:'app'},
 
@@ -806,11 +931,19 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v26 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v27 · KV Arquitetos')
     ),
 
     // Status
     h('div',{className:`sta ${status.t}`},h('div',{className:'sd'}),h('span',null,status.m)),
+
+    // Pipeline global
+    h('div',{className:'pi'},
+      h('div',{className:`ps ${hasSrc?'dn':''}`},'Captura'),
+      h('div',{className:`ps ${offApplied?'dn':hasSrc?'ac':''}`},'Offset'),
+      h('div',{className:`ps ${szValid&&hasBase?'ac':''}`},'Chanfro'),
+      h('div',{className:`ps ${canGenerate?'ac':''}`},'Resultado')
+    ),
 
     // ── Tab bar ────────────────────────────────────────────
     h('div',{className:'tabbar'},
@@ -818,21 +951,34 @@ function App(){
         joinFeats.length>0&&h('span',{className:'dot'}),
         h('span',{className:'tic'},'🔗'),
         h('span',{className:'tlb'},'Juntar Linhas')),
+      h('button',{className:`tabbtn ${activeTab==='offset'?'on':''}`,onClick:()=>setActiveTab('offset')},
+        offApplied&&h('span',{className:'dot'}),
+        h('span',{className:'tic'},'⤢'),
+        h('span',{className:'tlb'},'Offset')),
       h('button',{className:`tabbtn ${activeTab==='chanfro'?'on':''}`,onClick:()=>setActiveTab('chanfro')},
         hasSrc&&h('span',{className:'dot'}),
         h('span',{className:'tic'},'✂️'),
-        h('span',{className:'tlb'},'Recuo & Chanfro'))
+        h('span',{className:'tlb'},'Chanfro & Fillet'))
+    ),
+
+    // ── Captura de geometria (comum às 3 abas) ───────────────
+    h('div',{className:'panel'},
+      h('div',{className:'panel-header'},
+        h('span',{className:`sb ${hasSrc?'sb-done':'sb-act'}`},hasSrc?'✓':'0'),
+        h('span',null,'Capturar Geometria'),
+        hasSrc&&sourceOrigin==='join'&&h('span',{className:'badge'},'🔗 via Junção')
+      ),
+      h('div',{className:'panel-body'},
+        h('p',{className:'ch'},hasSrc
+          ?`Ativo: ${srcFeat.geometry.type==='Polygon'?srcFeat.geometry.coordinates[0].length-1:srcFeat.geometry.coordinates.length} vértices${activeRawIds.length?' · editável':''}. Clique para trocar.`
+          :'Selecione um polígono ou polilinha no mapa — ou use a aba "Juntar Linhas" para estender e unir linhas abertas.'),
+        h('button',{className:'bc ibtn',onClick:capture},
+          h('span',{className:'bic'},hasSrc?'↺':'⊙'),hasSrc?'Recapturar':'Capturar seleção')
+      )
     ),
 
     // ══════════════ ABA: JUNÇÃO DE LINHAS ══════════════
     activeTab==='join'&&h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
-
-      h('div',{className:'pi'},
-        h('div',{className:`ps ${joinFeats.length>0?'dn':''}`},'📐 Captura'),
-        h('div',{className:`ps ${joinFeats.length>=2?'ac':''}`},'⋈ Interseção'),
-        h('div',{className:`ps ${hasSrc&&sourceOrigin==='join'?'dn':''}`},'✓ Pronto')
-      ),
-
       h('div',{className:'panel'},
         h('div',{className:'panel-header'},
           h('span',{className:'sb sb-act'},'⋈'),'Junção de Linhas'),
@@ -892,39 +1038,62 @@ function App(){
           h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'4px',lineHeight:'1.5'}},
             editInPlace
               ?'Se as linhas não forem elementos editáveis (ex.: vieram de camada importada), o app cria uma camada separada automaticamente.'
-              :'Ao concluir, a geometria é enviada automaticamente para a aba "Recuo & Chanfro".')
+              :'Ao concluir, a geometria é enviada automaticamente para a aba "Offset".')
         )
       )
     ),
 
-    // ══════════════ ABA: RECUO & CHANFRO/FILLET ══════════════
-    activeTab==='chanfro'&&h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
-
-      // Pipeline
-      h('div',{className:'pi'},
-        h('div',{className:`ps ${hasSrc?'dn':''}`},'Captura'),
-        h('div',{className:`ps ${szValid&&hasSrc?'ac':''}`},'Operação'),
-        h('div',{className:`ps ${target==='offset'?offApplied?'dn':hasSrc?'ac':'':'dn'}`},target==='offset'?'Offset':'—'),
-        h('div',{className:`ps ${canGenerate?'ac':''}`},'Resultado')
-      ),
-
-      // ── STEP 0: Capturar ──────────────────────────────────
+    // ══════════════ ABA: OFFSET ══════════════
+    activeTab==='offset'&&h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
       h('div',{className:'panel'},
         h('div',{className:'panel-header'},
-          h('span',{className:`sb ${hasSrc?'sb-done':'sb-act'}`},hasSrc?'✓':'0'),
-          h('span',null,'Capturar Geometria'),
-          hasSrc&&sourceOrigin==='join'&&h('span',{className:'badge'},'🔗 via Junção')
-        ),
+          h('span',{className:`sb ${!hasSrc?'sb-off':offApplied?'sb-done':'sb-act'}`},offApplied?'✓':'⤢'),'Offset (recuo)'),
         h('div',{className:'panel-body'},
-          h('p',{className:'ch'},hasSrc
-            ?`Ativo: ${srcFeat.geometry.type==='Polygon'?srcFeat.geometry.coordinates[0].length-1:srcFeat.geometry.coordinates.length} vértices. Clique para trocar.`
-            :'Selecione um polígono ou polilinha no mapa — ou use a aba "Juntar Linhas".'),
-          h('button',{className:'bc ibtn',onClick:capture},
-            h('span',{className:'bic'},hasSrc?'↺':'⊙'),hasSrc?'Recapturar':'Capturar seleção')
+          !hasSrc&&h('p',{className:'ch'},'Capture uma geometria primeiro (painel acima).'),
+          hasSrc&&h('div',null,
+            h('span',{className:'fl'},'Distância do offset'),
+            h('div',{className:'ir'},
+              h('input',{type:'number',value:offDist,min:'.1',max:'500',step:'.5',
+                onChange:e=>{setOffDist(e.target.value);setOffResult(null);setOffApplied(false);}}),
+              h('span',{className:'iu'},'m')
+            ),
+            h('div',{className:'tr',style:{marginTop:'8px'}},
+              h('button',{className:`tb ibtn ${offDir==='inward'?'on':''}`,
+                onClick:()=>{setOffDir('inward');setOffResult(null);setOffApplied(false);}},
+                h('span',{className:'bic'},'←'),'Interno'),
+              h('button',{className:`tb ibtn ${offDir==='outward'?'on':''}`,
+                onClick:()=>{setOffDir('outward');setOffResult(null);setOffApplied(false);}},
+                'Externo',h('span',{className:'bic',style:{marginLeft:'5px',marginRight:0}},'→'))
+            ),
+            h('button',{
+              className:'bp ibtn',
+              onClick:applyOffset,
+              disabled:!parseFloat(offDist),
+              style:{marginTop:'8px',...(offApplied?{background:'#007a8a'}:{})}
+            },h('span',{className:'bic'},offApplied?'✓':'⤢'),offApplied?'Recalcular offset':'Calcular offset (preview laranja)')
+          )
         )
       ),
 
-      // ── STEP 1: Tipo de operação ────────────────────────────
+      offApplied&&h('div',{className:'panel'},
+        h('div',{className:'panel-header'},
+          h('span',{className:'sb sb-act'},'💾'),'Salvar no mapa'),
+        h('div',{className:'panel-body'},
+          renderCopyDeleteToggle(offSaveMode,setOffSaveMode,
+            'A geometria original permanece intacta; o offset é salvo como um novo elemento.',
+            'A geometria original é apagada e substituída pelo elemento com offset.'),
+          h('button',{className:'bp ibtn',onClick:saveOffset,style:{marginTop:'8px'}},
+            h('span',{className:'bic'},'💾'),'Salvar offset no mapa'),
+          h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'6px',lineHeight:'1.5'}},
+            'Opcional: você pode ir direto para a aba "Chanfro & Fillet" sem salvar — o offset calculado aqui já fica disponível como base lá.')
+        )
+      )
+    ),
+
+    // ══════════════ ABA: CHANFRO & FILLET ══════════════
+    activeTab==='chanfro'&&h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
+
+      // ── Tipo de operação ────────────────────────────
       h('div',{className:'panel'},
         h('div',{className:'panel-header'},
           h('span',{className:`sb ${!hasSrc?'sb-off':'sb-act'}`},'1'),'Tipo de Operação'),
@@ -955,51 +1124,29 @@ function App(){
         )
       ),
 
-      // ── STEP 2: Aplicar em ───────────────────────────────────
+      // ── Base ────────────────────────────────────────
       h('div',{className:'panel'},
         h('div',{className:'panel-header'},
-          h('span',{className:`sb ${!hasSrc?'sb-off':'sb-act'}`},'2'),'Aplicar em'),
+          h('span',{className:`sb ${!hasSrc?'sb-off':'sb-act'}`},'2'),'Base'),
         h('div',{className:'panel-body'},
-          h('div',{className:'tr',style:{marginBottom:'8px'}},
+          h('div',{className:'tr'},
             h('button',{className:`tb ibtn ${target==='direct'?'on':''}`,disabled:!hasSrc,
-              onClick:()=>{setTarget('direct');setOffApplied(false);}},
-              h('span',{className:'bic'},'⊙'),'Polígono original'),
-            h('button',{className:`tb ibtn ${target==='offset'?'on':''}`,disabled:!hasSrc,
+              onClick:()=>setTarget('direct')},
+              h('span',{className:'bic'},'⊙'),'Original'),
+            h('button',{className:`tb ibtn ${target==='offset'?'on':''}`,disabled:!hasSrc||!offResult,
               onClick:()=>setTarget('offset')},
               h('span',{className:'bic'},'⤢'),'Com offset')
           ),
-          target==='offset'&&h('div',{style:{display:'flex',flexDirection:'column',gap:'8px',padding:'8px',background:'#0d0f18',borderRadius:'7px',border:'1px solid #1e2232'}},
-            h('div',null,
-              h('span',{className:'fl'},'Distância do offset'),
-              h('div',{className:'ir'},
-                h('input',{type:'number',value:offDist,min:'.1',max:'500',step:'.5',
-                  onChange:e=>{setOffDist(e.target.value);setOffResult(null);setOffApplied(false);}}),
-                h('span',{className:'iu'},'m')
-              )
-            ),
-            h('div',{className:'tr'},
-              h('button',{className:`tb ibtn ${offDir==='inward'?'on':''}`,
-                onClick:()=>{setOffDir('inward');setOffResult(null);setOffApplied(false);}},
-                h('span',{className:'bic'},'←'),'Interno'),
-              h('button',{className:`tb ibtn ${offDir==='outward'?'on':''}`,
-                onClick:()=>{setOffDir('outward');setOffResult(null);setOffApplied(false);}},
-                'Externo',h('span',{className:'bic',style:{marginLeft:'5px',marginRight:0}},'→'))
-            ),
-            h('button',{
-              className:'bp ibtn',
-              onClick:applyOffset,
-              disabled:!hasSrc||!parseFloat(offDist),
-              style:offApplied?{background:'#007a8a'}:{}
-            },h('span',{className:'bic'},offApplied?'✓':'⤢'),offApplied?'Recalcular offset':'Aplicar offset (preview laranja)'),
-            !offApplied&&hasSrc&&h('div',{style:{fontSize:'10px',color:'#f5a62388',textAlign:'center'}},
-              'Aplique o offset antes de gerar o resultado')
-          ),
-          target==='direct'&&h('div',{style:{fontSize:'11px',color:'#3a4155'}},
-            `${opType==='chamfer'?'Chanfro':'Fillet'} aplicado diretamente no polígono original — sem recuo.`)
+          target==='offset'&&offResult&&h('div',{style:{fontSize:'11px',color:'#3a4155',marginTop:'6px'}},
+            `Usando offset de ${parseFloat(offDist)}m (${offDir==='inward'?'interno':'externo'}) calculado na aba Offset.`),
+          target==='offset'&&!offResult&&h('div',{style:{fontSize:'10px',color:'#f5a62388',marginTop:'6px'}},
+            'Calcule um offset na aba "Offset" primeiro.'),
+          target==='direct'&&h('div',{style:{fontSize:'11px',color:'#3a4155',marginTop:'6px'}},
+            `${opType==='chamfer'?'Chanfro':'Fillet'} aplicado diretamente na geometria original — sem recuo.`)
         )
       ),
 
-      // ── STEP 3: Vértices ─────────────────────────────────────
+      // ── Vértices ──────────────────────────────────────
       h('div',{className:'panel'},
         h('div',{className:'panel-header'},
           h('span',{className:`sb ${!hasBase?'sb-off':'sb-act'}`},'3'),'Vértices'),
@@ -1033,24 +1180,32 @@ function App(){
         )
       ),
 
-      // ── Actions ───────────────────────────────────────────────
-      h('div',{style:{display:'flex',flexDirection:'column',gap:'6px'}},
-        h('button',{className:'bp ibtn',onClick:applyFinal,disabled:!canGenerate},
-          h('span',{className:'bic'},running?'⏳':'✓'),running?'Salvando…':`Gerar ${opType==='chamfer'?'chanfro':'fillet'}`),
-        h('div',{style:{display:'flex',gap:'6px'}},
-          h('button',{className:'bs ibtn',onClick:preview,disabled:!hasBase||!szValid},
-            h('span',{className:'bic'},'🔄'),'Atualizar preview'),
-          h('button',{className:'bs ibtn',onClick:clearPreviews,disabled:!hasSrc},
-            h('span',{className:'bic'},'🧹'),'Limpar previews')
+      // ── Salvar resultado ───────────────────────────────
+      h('div',{className:'panel'},
+        h('div',{className:'panel-header'},
+          h('span',{className:'sb sb-act'},'💾'),'Salvar resultado'),
+        h('div',{className:'panel-body'},
+          renderCopyDeleteToggle(chanfroSaveMode,setChanfroSaveMode,
+            'A geometria base permanece intacta; o resultado é salvo como um novo elemento.',
+            'A geometria base é apagada e substituída pelo resultado do chanfro/fillet.'),
+          h('button',{className:'bp ibtn',onClick:applyFinal,disabled:!canGenerate,style:{marginTop:'8px'}},
+            h('span',{className:'bic'},running?'⏳':'✓'),running?'Salvando…':`Gerar ${opType==='chamfer'?'chanfro':'fillet'}`)
         )
       ),
 
-      // Log
-      logs.length>0&&h('div',{className:'lb'},
-        ...logs.slice().reverse().map((l,i)=>
-          h('div',{key:i,className:`l${l.t==='ok'?'k':l.t==='err'?'e':l.t==='warn'?'w':'d'}`},
-            `${l.ts}  ${l.m}`)
-        )
+      h('div',{style:{display:'flex',gap:'6px'}},
+        h('button',{className:'bs ibtn',onClick:preview,disabled:!hasBase||!szValid},
+          h('span',{className:'bic'},'🔄'),'Atualizar preview'),
+        h('button',{className:'bs ibtn',onClick:clearPreviews,disabled:!hasSrc},
+          h('span',{className:'bic'},'🧹'),'Limpar previews')
+      )
+    ),
+
+    // Log (comum às 3 abas)
+    logs.length>0&&h('div',{className:'lb'},
+      ...logs.slice().reverse().map((l,i)=>
+        h('div',{key:i,className:`l${l.t==='ok'?'k':l.t==='err'?'e':l.t==='warn'?'w':'d'}`},
+          `${l.ts}  ${l.m}`)
       )
     )
   );
