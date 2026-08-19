@@ -92,7 +92,15 @@ import { giraffeState, rpc } from '@gi-nx/iframe-sdk';
 // ═══════════════════════════════════════════════════════
 // MATH HELPERS
 // ═══════════════════════════════════════════════════════
-function degPerMetre(lat){const r=lat*Math.PI/180;return{lat:1/111320,lon:1/(111320*Math.cos(r))};}
+// Conversão graus↔metros usando o comprimento real do grau (WGS84), que varia com a
+// latitude. A constante fixa 111320 m/grau usada antes gerava um desvio sistemático
+// de ~0,5% em latitudes como São Paulo (ex.: chanfro de 3,50m saía com 3,48m).
+function degPerMetre(lat){
+  const r=lat*Math.PI/180;
+  const mPerDegLat=111132.92-559.82*Math.cos(2*r)+1.175*Math.cos(4*r)-0.0023*Math.cos(6*r);
+  const mPerDegLon=111412.84*Math.cos(r)-93.5*Math.cos(3*r)+0.118*Math.cos(5*r);
+  return{lat:1/mPerDegLat,lon:1/mPerDegLon};
+}
 function avgLat(ring){return ring.reduce((s,c)=>s+c[1],0)/ring.length;}
 function toMetric(c,o,s){return[(c[0]-o[0])/s.lon,(c[1]-o[1])/s.lat];}
 function fromMetric(xy,o,s){return[o[0]+xy[0]*s.lon,o[1]+xy[1]*s.lat];}
@@ -954,7 +962,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v29 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v30 · KV Arquitetos')
     ),
 
     // Status
