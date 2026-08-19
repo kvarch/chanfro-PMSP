@@ -562,7 +562,7 @@ function extractCreatedId(res){
   return null;
 }
 
-const PV_OFF='__oc_off__',PV_RES='__oc_res__';
+
 
 // ═══════════════════════════════════════════════════════
 // APP
@@ -597,12 +597,12 @@ function App(){
   // Join Lines
   const[joinFeats, setJoinFeats] =useState([]);   // captured line features
   const[joinMsg,   setJoinMsg]   =useState('');   // status/error message
-  const[editInPlace,setEditInPlace]=useState(false); // substitui as linhas originais em vez de criar camada nova
+  const[editInPlace,setEditInPlace]=useState(true); // substitui as linhas originais em vez de criar camada nova (padrão: ligado)
   // ID(s) do RawSection que representa atualmente a geometria ativa no mapa
   // (permite apagar/substituir em cadeia através das abas). [] = não editável/desconhecido.
   const[activeRawIds,setActiveRawIds]=useState([]);
   const[offSaveMode,   setOffSaveMode]   =useState('copy'); // 'copy'|'delete' — ao salvar o offset
-  const[chanfroEditInPlace,setChanfroEditInPlace]=useState(false); // edita a geometria original em vez de criar cópia
+  const[chanfroEditInPlace,setChanfroEditInPlace]=useState(true); // edita a geometria original em vez de criar cópia (padrão: ligado)
 
   const log=useCallback((m,t='ok')=>{
     const ts=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -688,15 +688,11 @@ function App(){
         }catch{
           const fcC={type:'FeatureCollection',features:[{...feat,properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2,fillOpacity:0}}]};
           await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fcC]);
-          log('Preview: polyline/polígono unido (camada temporária)','warn');
+          log('Salvo como camada temporária (fallback — createGeoJSONLayer falhou)','warn');
         }
       }
       setActiveRawIds(editedInPlace&&newId?[newId]:[]);
       if(editedInPlace&&!newId)log('Elemento substituído, mas não foi possível confirmar o novo ID — próximas etapas criarão cópias','warn');
-
-      // Preview verde
-      const fc={type:'FeatureCollection',features:[{...feat,properties:{color:'#00ff88',stroke:'#00ff88',strokeWidth:2,fillOpacity:.08}}]};
-      await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fc]);
 
       // Passa para o workflow principal
       setSrcFeat(feat);setIsOpen(isOpenResult);setSourceOrigin('join');
@@ -759,10 +755,8 @@ function App(){
       const result=isOpen?offsetPolylineFeature(srcFeat,d):offsetPolygon(srcFeat,d);
       if(!result){log('Offset inválido','err');return;}
       setOffResult(result);setOffApplied(true);setSelVerts([]);
-      const fc={type:'FeatureCollection',features:[{...result.feature,properties:{...result.feature.properties,color:'#f5a623',stroke:'#f5a623',strokeWidth:2,fillOpacity:.08}}]};
-      await rpc.invoke('addTempLayerGeoJSON',[PV_OFF,fc]);
-      log(`Offset ok · ${result.mOff.length-(isOpen?0:1)} vértices`);
-      setStatus({t:'ok',m:`Offset ${dist}m aplicado`});
+      log(`Offset calculado · ${result.mOff.length-(isOpen?0:1)} vértices`);
+      setStatus({t:'ok',m:`Offset ${dist}m calculado`});
     }catch(e){log('Erro offset: '+e.message,'err');}
   },[srcFeat,offDist,offDir,isOpen,log]);
 
@@ -821,28 +815,8 @@ function App(){
         setActiveRawIds(newId?[newId]:activeRawIds);
       }
       setStatus({t:'ok',m:offAlsoChanfro?'Offset + chanfro/fillet salvos no mapa':'Offset salvo no mapa'});
-      await rpc.invoke('addTempLayerGeoJSON',[PV_OFF,{type:'FeatureCollection',features:[]}]);
     }catch(e){log('Erro ao salvar: '+e.message,'err');}
   },[offResult,offDist,offSaveMode,offAlsoChanfro,opSize,opType,vxMode,selVerts,activeRawIds,saveOffsetAsCopy,log]);
-
-
-  const preview=useCallback(async()=>{
-    const base=getBase();
-    if(!base)return;
-    const sz=parseFloat(opSize);
-    if(isNaN(sz)||sz<=0)return;
-    try{
-      const idx=vxMode==='select'&&selVerts.length>0?selVerts:null;
-      const result=processFeature(base,sz,opType,idx);
-      const fc={type:'FeatureCollection',features:[{...result,properties:{...result.properties,color:'#00ACCD',stroke:'#00ACCD',strokeWidth:2,fillOpacity:.1}}]};
-      await rpc.invoke('addTempLayerGeoJSON',[PV_RES,fc]);
-    }catch(e){log('Preview erro: '+e.message,'err');}
-  },[getBase,opSize,opType,vxMode,selVerts,log]);
-
-  useEffect(()=>{
-    if(activeTab==='chanfro'&&getBase())preview();
-    else rpc.invoke('addTempLayerGeoJSON',[PV_RES,{type:'FeatureCollection',features:[]}]).catch(()=>{});
-  },[opSize,opType,selVerts,vxMode,srcFeat,activeTab]);
 
   // ── Apply Final ──
   const applyFinal=useCallback(async()=>{
@@ -893,20 +867,9 @@ function App(){
       setActiveRawIds(newId?[newId]:chanfroEditInPlace?[]:activeRawIds);
 
       setStatus({t:'ok',m:'Resultado criado!'});
-      await rpc.invoke('addTempLayerGeoJSON',[PV_OFF,{type:'FeatureCollection',features:[]}]);
-      await rpc.invoke('addTempLayerGeoJSON',[PV_RES,{type:'FeatureCollection',features:[]}]);
     }catch(e){log('Falha: '+e.message,'err');setStatus({t:'err',m:'Erro ao salvar'});}
     finally{setRunning(false);}
   },[getBase,opSize,opType,vxMode,selVerts,chanfroEditInPlace,activeRawIds,log]);
-
-  const clearPreviews=useCallback(async()=>{
-    try{
-      await rpc.invoke('addTempLayerGeoJSON',[PV_OFF,{type:'FeatureCollection',features:[]}]);
-      await rpc.invoke('addTempLayerGeoJSON',[PV_RES,{type:'FeatureCollection',features:[]}]);
-      setOffResult(null);setOffApplied(false);setSelVerts([]);
-      log('Previews limpos');
-    }catch{}
-  },[log]);
 
   // ── Derived ──
   const szNum=parseFloat(opSize);
@@ -962,7 +925,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v30 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v31 · KV Arquitetos')
     ),
 
     // Status
@@ -1101,7 +1064,7 @@ function App(){
               onClick:applyOffset,
               disabled:!parseFloat(offDist),
               style:{marginTop:'8px',...(offApplied?{background:'#007a8a'}:{})}
-            },h('span',{className:'bic'},offApplied?'✓':'⤢'),offApplied?'Recalcular offset':'Calcular offset (preview laranja)')
+            },h('span',{className:'bic'},offApplied?'✓':'⤢'),offApplied?'Recalcular offset':'Calcular offset')
           )
         )
       ),
@@ -1213,7 +1176,7 @@ function App(){
             )
           ),
           hasBase&&szValid&&h('div',{style:{fontSize:'11px',color:'#3a4155',paddingTop:'4px'}},
-            `Preview azul · ${activeVerts} vértice(s) · ${opType==='chamfer'?`chanfro ${szNum}m`:`fillet R${szNum}m`}`)
+            `${activeVerts} vértice(s) selecionado(s) · ${opType==='chamfer'?`chanfro ${szNum}m`:`fillet R${szNum}m`}`)
         )
       ),
 
@@ -1251,13 +1214,6 @@ function App(){
           chanfroEditInPlace&&!activeRawIds.length&&h('div',{style:{fontSize:'10px',color:'#f5a62388',marginTop:'6px'}},
             '⚠ Geometria atual sem elemento editável conhecido — será salva como cópia mesmo assim.')
         )
-      ),
-
-      h('div',{style:{display:'flex',gap:'6px'}},
-        h('button',{className:'bs ibtn',onClick:preview,disabled:!hasBase||!szValid},
-          h('span',{className:'bic'},'🔄'),'Atualizar preview'),
-        h('button',{className:'bs ibtn',onClick:clearPreviews,disabled:!hasSrc},
-          h('span',{className:'bic'},'🧹'),'Limpar previews')
       )
     ),
 
