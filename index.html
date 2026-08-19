@@ -198,57 +198,65 @@ function directBaseResult(feature,isOpen){
 }
 
 // ═══════════════════════════════════════════════════════
-// CHAMFER — PMSP EXACT (offset mode)
+// CHAMFER — PMSP EXACT (núcleo genérico, recebe a direção da bissetriz já calculada)
 // ═══════════════════════════════════════════════════════
-function chamferVertexPMSP(mOrig,mOff,i,size){
-  const n=mOff.length-1;
-  const bisVec=vecSub(mOff[i],mOrig[i]);
-  const bisLen=vecLen(bisVec);
-  if(bisLen<1e-8)return null;
-  const bisDir=vecScale(bisVec,1/bisLen),bisPerp=vecPerp(bisDir);
+function chamferVertexPMSPCore(mRing,i,size,bisDir,isOpenRing){
+  const n=isOpenRing?mRing.length:mRing.length-1;
+  const bisPerp=vecPerp(bisDir);
   const half=size/2;
-  const limA=vecAdd(mOff[i],vecScale(bisPerp,half)),limB=vecAdd(mOff[i],vecScale(bisPerp,-half));
-  const prev=(i-1+n)%n,next=(i+1)%n;
-  const d1=vecNorm(vecSub(mOff[i],mOff[prev])),d2=vecNorm(vecSub(mOff[next],mOff[i]));
-  const lA=vecLen(vecSub(mOff[i],mOff[prev])),lB=vecLen(vecSub(mOff[next],mOff[i]));
+  const limA=vecAdd(mRing[i],vecScale(bisPerp,half)),limB=vecAdd(mRing[i],vecScale(bisPerp,-half));
+  const prev=isOpenRing?i-1:(i-1+n)%n,next=isOpenRing?i+1:(i+1)%n;
+  const d1=vecNorm(vecSub(mRing[i],mRing[prev])),d2=vecNorm(vecSub(mRing[next],mRing[i]));
+  const lA=vecLen(vecSub(mRing[i],mRing[prev])),lB=vecLen(vecSub(mRing[next],mRing[i]));
 
-  // Validate that intersection points fall WITHIN their edge segments.
-  // For external offsets, they can fall beyond the vertex, causing spikes.
+  // Valida que os pontos de interseção caem DENTRO dos segmentos adjacentes.
+  // Para offsets externos (ou cantos reflexos), podem cair fora, causando spikes.
   function valid(pA,pB){
     if(!pA||!pB)return false;
-    const tA=vecDot(vecSub(pA,mOff[prev]),d1); // position along incoming edge
-    const tB=vecDot(vecSub(pB,mOff[i]),  d2); // position along outgoing edge
+    const tA=vecDot(vecSub(pA,mRing[prev]),d1);
+    const tB=vecDot(vecSub(pB,mRing[i]),  d2);
     return tA>=-1e-4&&tA<=lA+1e-4&&tB>=-1e-4&&tB<=lB+1e-4;
   }
 
-  const pA1=lineIntersect(mOff[prev],d1,limA,bisDir),pB1=lineIntersect(mOff[i],d2,limB,bisDir);
+  const pA1=lineIntersect(mRing[prev],d1,limA,bisDir),pB1=lineIntersect(mRing[i],d2,limB,bisDir);
   if(valid(pA1,pB1))return[pA1,pB1];
-  const pA2=lineIntersect(mOff[prev],d1,limB,bisDir),pB2=lineIntersect(mOff[i],d2,limA,bisDir);
+  const pA2=lineIntersect(mRing[prev],d1,limB,bisDir),pB2=lineIntersect(mRing[i],d2,limA,bisDir);
   if(valid(pA2,pB2))return[pA2,pB2];
   return null;
+}
+// Bissetriz do ângulo interior a partir das duas arestas do vértice (sem depender de offset).
+// normalize(perp(d1)+perp(d2)) aponta para o lado interior quando o anel é CCW; o algoritmo
+// acima testa as duas polaridades de qualquer forma, então o sinal exato não é crítico.
+function computeEdgeBisector(d1,d2){
+  const sum=vecAdd(vecPerp(d1),vecPerp(d2));
+  const l=vecLen(sum);
+  return l<1e-9?vecPerp(d1):vecScale(sum,1/l);
+}
+function chamferVertexPMSP(mOrig,mOff,i,size){
+  const bisVec=vecSub(mOff[i],mOrig[i]);
+  const bisLen=vecLen(bisVec);
+  if(bisLen<1e-8)return null;
+  return chamferVertexPMSPCore(mOff,i,size,vecScale(bisVec,1/bisLen),false);
 }
 function chamferVertexPMSPOpen(mOrig,mOff,i,size){
   const bisVec=vecSub(mOff[i],mOrig[i]);
   const bisLen=vecLen(bisVec);
   if(bisLen<1e-8)return null;
-  const bisDir=vecScale(bisVec,1/bisLen),bisPerp=vecPerp(bisDir);
-  const half=size/2;
-  const limA=vecAdd(mOff[i],vecScale(bisPerp,half)),limB=vecAdd(mOff[i],vecScale(bisPerp,-half));
-  const d1=vecNorm(vecSub(mOff[i],mOff[i-1])),d2=vecNorm(vecSub(mOff[i+1],mOff[i]));
-  const lA=vecLen(vecSub(mOff[i],mOff[i-1])),lB=vecLen(vecSub(mOff[i+1],mOff[i]));
-  function valid(pA,pB){
-    if(!pA||!pB)return false;
-    const tA=vecDot(vecSub(pA,mOff[i-1]),d1);
-    const tB=vecDot(vecSub(pB,mOff[i]),  d2);
-    return tA>=-1e-4&&tA<=lA+1e-4&&tB>=-1e-4&&tB<=lB+1e-4;
-  }
-  const pA1=lineIntersect(mOff[i-1],d1,limA,bisDir),pB1=lineIntersect(mOff[i],d2,limB,bisDir);
-  if(valid(pA1,pB1))return[pA1,pB1];
-  const pA2=lineIntersect(mOff[i-1],d1,limB,bisDir),pB2=lineIntersect(mOff[i],d2,limA,bisDir);
-  if(valid(pA2,pB2))return[pA2,pB2];
-  return null;
+  return chamferVertexPMSPCore(mOff,i,size,vecScale(bisVec,1/bisLen),true);
 }
-// Simple walk-along-edges chamfer (direct mode — no mOrig needed)
+// Chanfro EXATO direto na geometria original — sem precisar de offset.
+// A bissetriz é derivada das duas arestas do próprio vértice (ângulo interno),
+// garantindo |Ponto_A − Ponto_B| = size para qualquer ângulo, igual ao modo offset.
+function chamferVertexExact(mRing,i,size,isOpenRing){
+  const n=isOpenRing?mRing.length:mRing.length-1;
+  const prev=isOpenRing?i-1:(i-1+n)%n,next=isOpenRing?i+1:(i+1)%n;
+  const d1=vecNorm(vecSub(mRing[i],mRing[prev])),d2=vecNorm(vecSub(mRing[next],mRing[i]));
+  const bisDir=computeEdgeBisector(d1,d2);
+  return chamferVertexPMSPCore(mRing,i,size,bisDir,isOpenRing);
+}
+// Chanfro simples (walk-along-edges) — mantido como referência/fallback histórico.
+// NÃO garante largura exata para ângulos diferentes de 180°; substituído por
+// chamferVertexExact no modo direto (ver processVertex).
 function chamferVertexDirect(mRing,i,size,isOpen){
   const n=isOpen?mRing.length:mRing.length-1;
   const pi=isOpen?i-1:(i-1+n)%n,ni=isOpen?i+1:(i+1)%n;
@@ -313,7 +321,7 @@ function filletVertex(mOrig,mOff,prevIdx,i,nextIdx,radius,isOpen,isDirect){
 // ═══════════════════════════════════════════════════════
 function processVertex(mOrig,mOff,prevIdx,i,nextIdx,size,type,isOpen,isDirect){
   if(type==='chamfer'){
-    if(isDirect)return chamferVertexDirect(mOff,i,size,isOpen);
+    if(isDirect)return chamferVertexExact(mOff,i,size,isOpen);
     return isOpen?chamferVertexPMSPOpen(mOrig,mOff,i,size):chamferVertexPMSP(mOrig,mOff,i,size);
   }else{
     return filletVertex(mOrig,mOff,prevIdx,i,nextIdx,size,isOpen,isDirect);
@@ -946,7 +954,7 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v28 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v29 · KV Arquitetos')
     ),
 
     // Status
