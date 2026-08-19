@@ -71,6 +71,15 @@ body{font-family:'Hind',sans-serif;background:#0d0f18;color:#dde3ee;min-height:1
 .ti{font-size:22px;}
 .tl{font-size:12px;font-weight:600;color:#dde3ee;}
 .td{font-size:10px;color:#55607a;margin-top:1px;}
+.tabbar{display:flex;gap:6px;background:#12141f;border:1px solid #252838;border-radius:11px;padding:4px;}
+.tabbtn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 6px;border-radius:8px;border:none;background:transparent;color:#55607a;cursor:pointer;font-family:'Hind',sans-serif;transition:all .15s;position:relative;}
+.tabbtn .tic{font-size:19px;line-height:1;}
+.tabbtn .tlb{font-size:11px;font-weight:600;letter-spacing:.01em;}
+.tabbtn.on{background:#00ACCD18;color:#00ACCD;box-shadow:inset 0 0 0 1px #00ACCD55;}
+.tabbtn:not(.on):hover{background:#1a1e2c;color:#99b0c4;}
+.tabbtn .dot{position:absolute;top:6px;right:10px;width:6px;height:6px;border-radius:50%;background:#00ff88;}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:700;padding:3px 8px;border-radius:20px;background:#00ACCD1c;color:#00ACCD;text-transform:uppercase;letter-spacing:.05em;margin-left:6px;}
+.ic{font-size:13px;margin-right:5px;}
 </style>
 </head>
 <body>
@@ -550,8 +559,10 @@ function App(){
   const[logs,     setLogs]     =useState([]);
   const[running,  setRunning]  =useState(false);
   const[offApplied,setOffApplied]=useState(false);
-  // Join Lines panel
-  const[joinOpen,  setJoinOpen]  =useState(false);
+  // Tabs
+  const[activeTab, setActiveTab] =useState('chanfro'); // 'join'|'chanfro'
+  const[sourceOrigin,setSourceOrigin]=useState('none'); // 'none'|'capture'|'join'
+  // Join Lines
   const[joinFeats, setJoinFeats] =useState([]);   // captured line features
   const[joinMsg,   setJoinMsg]   =useState('');   // status/error message
 
@@ -629,10 +640,11 @@ function App(){
       await rpc.invoke('addTempLayerGeoJSON',['__join_prev__',fc]);
 
       // Passa para o workflow principal
-      setSrcFeat(feat);setIsOpen(isOpenResult);
+      setSrcFeat(feat);setIsOpen(isOpenResult);setSourceOrigin('join');
       setOffResult(null);setOffApplied(false);setSelVerts([]);
       setStatus({t:'ok',m:`${isOpenResult?'↗ Polilinha':'⬡ Polígono'} criado · pronto para offset/chanfro`});
-      setJoinMsg(`✓ ${isOpenResult?'Polilinha aberta':'Polígono fechado'} criado — continue no workflow abaixo`);
+      setJoinMsg(`✓ ${isOpenResult?'Polilinha aberta':'Polígono fechado'} criado`);
+      setActiveTab('chanfro');
     }catch(e){setJoinMsg('❌ '+e.message);}
   },[joinFeats,log]);
   const getBase=useCallback(()=>{
@@ -670,7 +682,7 @@ function App(){
       const{feature,isOpen:io}=found;
       const coords=io?feature.geometry.coordinates:feature.geometry.coordinates[0];
       const n=io?coords.length:coords.length-1;
-      setSrcFeat(feature);setIsOpen(io);setOffResult(null);setOffApplied(false);setSelVerts([]);
+      setSrcFeat(feature);setIsOpen(io);setSourceOrigin('capture');setOffResult(null);setOffApplied(false);setSelVerts([]);
       setStatus({t:'ok',m:`${io?'↗ Polilinha aberta':'⬡ Polígono fechado'} · ${n} ${io?'pts':'vértices'}`});
       log(`Capturado: ${io?'aberta':'fechado'} · ${n} vértices`);
     }catch(e){log('Erro: '+e.message,'err');setStatus({t:'err',m:'Erro ao ler seleção'});}
@@ -775,203 +787,224 @@ function App(){
     h('div',{style:{textAlign:'center',paddingTop:'4px'}},
       h('div',{style:{fontSize:'17px',fontWeight:600,color:'#dde3ee',letterSpacing:'-.2px'}},
         h('span',{style:{color:'#00ACCD'}},'⬡ '),'Offset + Chanfro / Fillet'),
-      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v24 · KV Arquitetos')
+      h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'2px'}},'beta v25 · KV Arquitetos')
     ),
 
     // Status
     h('div',{className:`sta ${status.t}`},h('div',{className:'sd'}),h('span',null,status.m)),
 
-    // Pipeline
-    h('div',{className:'pi'},
-      h('div',{className:`ps ${hasSrc?'dn':''}`},'Captura'),
-      h('div',{className:`ps ${szValid&&hasSrc?'ac':''}`},'Operação'),
-      h('div',{className:`ps ${target==='offset'?offApplied?'dn':hasSrc?'ac':'':'dn'}`},target==='offset'?'Offset':'—'),
-      h('div',{className:`ps ${canGenerate?'ac':''}`},'Resultado')
+    // ── Tab bar ────────────────────────────────────────────
+    h('div',{className:'tabbar'},
+      h('button',{className:`tabbtn ${activeTab==='join'?'on':''}`,onClick:()=>setActiveTab('join')},
+        joinFeats.length>0&&h('span',{className:'dot'}),
+        h('span',{className:'tic'},'🔗'),
+        h('span',{className:'tlb'},'Juntar Linhas')),
+      h('button',{className:`tabbtn ${activeTab==='chanfro'?'on':''}`,onClick:()=>setActiveTab('chanfro')},
+        hasSrc&&h('span',{className:'dot'}),
+        h('span',{className:'tic'},'✂️'),
+        h('span',{className:'tlb'},'Recuo & Chanfro'))
     ),
 
-    // ── Junção de Linhas (collapsible) ───────────────────
-    h('div',{className:'panel'},
-      h('div',{
-        className:'panel-header',
-        style:{cursor:'pointer',userSelect:'none'},
-        onClick:()=>setJoinOpen(o=>!o)
-      },
-        h('span',{className:'sb sb-act'},'⋈'),
-        h('span',{style:{flex:1}},'Junção de Linhas'),
-        h('span',{style:{fontSize:'10px',color:'#3a4155'}},joinOpen?'▲ fechar':'▼ abrir')
+    // ══════════════ ABA: JUNÇÃO DE LINHAS ══════════════
+    activeTab==='join'&&h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
+
+      h('div',{className:'pi'},
+        h('div',{className:`ps ${joinFeats.length>0?'dn':''}`},'📐 Captura'),
+        h('div',{className:`ps ${joinFeats.length>=2?'ac':''}`},'⋈ Interseção'),
+        h('div',{className:`ps ${hasSrc&&sourceOrigin==='join'?'dn':''}`},'✓ Pronto')
       ),
-      joinOpen&&h('div',{className:'panel-body'},
-        h('p',{className:'ch',style:{marginBottom:'4px'}},
-          'Selecione 2 ou mais linhas abertas no mapa que se encontrariam se estendidas. ',
-          'O app calcula as interseções e gera o polígono.'),
-        h('button',{className:'bc',onClick:captureForJoin},'⊙ Capturar linhas selecionadas'),
 
-        joinFeats.length>0&&h('div',{style:{fontSize:'11px',color:'#3a4155',padding:'4px 0'}},
-          `${joinFeats.length} linha(s) capturada(s)`,
-          joinFeats.length>2&&h('span',{style:{color:'#f5a623',marginLeft:'6px'}},
-            '· auto-ordenação ativa')
-        ),
+      h('div',{className:'panel'},
+        h('div',{className:'panel-header'},
+          h('span',{className:'sb sb-act'},'⋈'),'Junção de Linhas'),
+        h('div',{className:'panel-body'},
+          h('p',{className:'ch',style:{marginBottom:'4px',textAlign:'left'}},
+            'Selecione 2 ou mais linhas abertas no mapa que se encontrariam se estendidas. O app calcula as interseções e gera o polígono ou a polilinha unida.'),
 
-        joinMsg&&h('div',{
-          style:{
-            fontSize:'11px',padding:'6px 8px',borderRadius:'6px',marginTop:'2px',
-            background: joinMsg.startsWith('✓')?'#00ACCD12':
-                        joinMsg.startsWith('❌')?'#f5555512':'#f5a62312',
-            color:      joinMsg.startsWith('✓')?'#00ACCD':
-                        joinMsg.startsWith('❌')?'#f56':'#f5a623',
-            border:     `1px solid ${joinMsg.startsWith('✓')?'#00ACCD2a':joinMsg.startsWith('❌')?'#f555552a':'#f5a6232a'}`,
-          }
-        },joinMsg),
+          h('button',{className:'bc ibtn',onClick:captureForJoin},
+            h('span',{className:'bic'},'📐'),'Capturar linhas selecionadas'),
 
-        h('button',{
-          className:'bp',
-          onClick:doJoin,
-          disabled:joinFeats.length<2,
-          style:{marginTop:'4px'}
-        },'⋈ Calcular interseções e criar geometria'),
+          joinFeats.length>0&&h('div',{style:{fontSize:'11px',color:'#3a4155',padding:'6px 2px'}},
+            `📎 ${joinFeats.length} linha(s) capturada(s)`,
+            joinFeats.length>2&&h('span',{style:{color:'#f5a623',marginLeft:'6px'}},'· auto-ordenação ativa')
+          ),
 
-        h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'4px',lineHeight:'1.5'}},
-          'A geometria criada é carregada automaticamente no workflow abaixo para você aplicar offset e chanfro.')
+          joinMsg&&h('div',{
+            style:{
+              fontSize:'11px',padding:'6px 8px',borderRadius:'6px',marginTop:'2px',
+              background: joinMsg.startsWith('✓')?'#00ACCD12':joinMsg.startsWith('❌')?'#f5555512':'#f5a62312',
+              color:      joinMsg.startsWith('✓')?'#00ACCD':joinMsg.startsWith('❌')?'#f56':'#f5a623',
+              border:     `1px solid ${joinMsg.startsWith('✓')?'#00ACCD2a':joinMsg.startsWith('❌')?'#f555552a':'#f5a6232a'}`,
+            }
+          },joinMsg),
+
+          h('button',{
+            className:'bp ibtn',
+            onClick:doJoin,
+            disabled:joinFeats.length<2,
+            style:{marginTop:'4px'}
+          },h('span',{className:'bic'},'⋈'),'Calcular interseções e criar geometria'),
+
+          h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'4px',lineHeight:'1.5'}},
+            'Ao concluir, a geometria é enviada automaticamente para a aba "Recuo & Chanfro".')
+        )
       )
     ),
 
-    // ── STEP 0: Capturar ──────────────────────────────────────
-    h('div',{className:'panel'},
-      h('div',{className:'panel-header'},
-        h('span',{className:`sb ${hasSrc?'sb-done':'sb-act'}`},hasSrc?'✓':'0'),'Capturar Geometria'),
-      h('div',{className:'panel-body'},
-        h('p',{className:'ch'},hasSrc
-          ?`Ativo: ${srcFeat.geometry.type==='Polygon'?srcFeat.geometry.coordinates[0].length-1:srcFeat.geometry.coordinates.length} vértices. Clique para trocar.`
-          :'Selecione um polígono ou polilinha no mapa.'),
-        h('button',{className:'bc',onClick:capture},hasSrc?'↺ Recapturar':'⊙ Capturar seleção')
-      )
-    ),
+    // ══════════════ ABA: RECUO & CHANFRO/FILLET ══════════════
+    activeTab==='chanfro'&&h('div',{style:{display:'flex',flexDirection:'column',gap:'10px'}},
 
-    // ── STEP 1: Tipo de operação ──────────────────────────────
-    h('div',{className:'panel'},
-      h('div',{className:'panel-header'},
-        h('span',{className:`sb ${!hasSrc?'sb-off':'sb-act'}`},'1'),'Tipo de Operação'),
-      h('div',{className:'panel-body'},
-        // Toggle chanfro / fillet
-        h('div',{className:'tr',style:{marginBottom:'6px'}},
-          h('button',{className:`tb ${opType==='chamfer'?'on':''}`,onClick:()=>setOpType('chamfer')},
-            '✂ Chanfro'),
-          h('button',{className:`tb ${opType==='fillet'?'on':''}`,onClick:()=>setOpType('fillet')},
-            '⌒ Fillet')
-        ),
-        // Card describing the operation
-        h('div',{className:'tt'},
-          h('div',{className:'ti'},opType==='chamfer'?'✂':'⌒'),
-          h('div',null,
-            h('div',{className:'tl'},opType==='chamfer'?'Chanfro — corte reto':'Fillet — arco suave'),
-            h('div',{className:'td'},opType==='chamfer'
-              ?'Substitui o vértice por um segmento reto. Tamanho exato garantido para qualquer ângulo.'
-              :'Substitui o vértice por um arco circular tangente às duas arestas.')
-          )
-        ),
-        // Size input
-        h('span',{className:'fl'},opType==='chamfer'?'Tamanho total do chanfro':'Raio do fillet'),
-        h('div',{className:'ir'},
-          h('input',{type:'number',value:opSize,min:'.1',max:'100',step:'.1',onChange:e=>setOpSize(e.target.value)}),
-          h('span',{className:'iu'},'m')
-        ),
-        szValid&&h('div',{className:'fh'},opType==='chamfer'
-          ?`Cada braço: ${(szNum/2).toFixed(2)}m a partir do vértice`
-          :`Comprimento do arco por quina: ~${(szNum*Math.PI/2).toFixed(2)}m (90°)`)
-      )
-    ),
+      // Pipeline
+      h('div',{className:'pi'},
+        h('div',{className:`ps ${hasSrc?'dn':''}`},'Captura'),
+        h('div',{className:`ps ${szValid&&hasSrc?'ac':''}`},'Operação'),
+        h('div',{className:`ps ${target==='offset'?offApplied?'dn':hasSrc?'ac':'':'dn'}`},target==='offset'?'Offset':'—'),
+        h('div',{className:`ps ${canGenerate?'ac':''}`},'Resultado')
+      ),
 
-    // ── STEP 2: Aplicar em ────────────────────────────────────
-    h('div',{className:'panel'},
-      h('div',{className:'panel-header'},
-        h('span',{className:`sb ${!hasSrc?'sb-off':'sb-act'}`},'2'),'Aplicar em'),
-      h('div',{className:'panel-body'},
-        h('div',{className:'tr',style:{marginBottom:'8px'}},
-          h('button',{className:`tb ${target==='direct'?'on':''}`,disabled:!hasSrc,
-            onClick:()=>{setTarget('direct');setOffApplied(false);}},
-            '⊙ Polígono original'),
-          h('button',{className:`tb ${target==='offset'?'on':''}`,disabled:!hasSrc,
-            onClick:()=>setTarget('offset')},
-            '⤢ Com offset')
+      // ── STEP 0: Capturar ──────────────────────────────────
+      h('div',{className:'panel'},
+        h('div',{className:'panel-header'},
+          h('span',{className:`sb ${hasSrc?'sb-done':'sb-act'}`},hasSrc?'✓':'0'),
+          h('span',null,'Capturar Geometria'),
+          hasSrc&&sourceOrigin==='join'&&h('span',{className:'badge'},'🔗 via Junção')
         ),
-        // Offset params (only shown when target='offset')
-        target==='offset'&&h('div',{style:{display:'flex',flexDirection:'column',gap:'8px',padding:'8px',background:'#0d0f18',borderRadius:'7px',border:'1px solid #1e2232'}},
-          h('div',null,
-            h('span',{className:'fl'},'Distância do offset'),
-            h('div',{className:'ir'},
-              h('input',{type:'number',value:offDist,min:'.1',max:'500',step:'.5',
-                onChange:e=>{setOffDist(e.target.value);setOffResult(null);setOffApplied(false);}}),
-              h('span',{className:'iu'},'m')
+        h('div',{className:'panel-body'},
+          h('p',{className:'ch'},hasSrc
+            ?`Ativo: ${srcFeat.geometry.type==='Polygon'?srcFeat.geometry.coordinates[0].length-1:srcFeat.geometry.coordinates.length} vértices. Clique para trocar.`
+            :'Selecione um polígono ou polilinha no mapa — ou use a aba "Juntar Linhas".'),
+          h('button',{className:'bc ibtn',onClick:capture},
+            h('span',{className:'bic'},hasSrc?'↺':'⊙'),hasSrc?'Recapturar':'Capturar seleção')
+        )
+      ),
+
+      // ── STEP 1: Tipo de operação ────────────────────────────
+      h('div',{className:'panel'},
+        h('div',{className:'panel-header'},
+          h('span',{className:`sb ${!hasSrc?'sb-off':'sb-act'}`},'1'),'Tipo de Operação'),
+        h('div',{className:'panel-body'},
+          h('div',{className:'tr',style:{marginBottom:'6px'}},
+            h('button',{className:`tb ibtn ${opType==='chamfer'?'on':''}`,onClick:()=>setOpType('chamfer')},
+              h('span',{className:'bic'},'✂'),'Chanfro'),
+            h('button',{className:`tb ibtn ${opType==='fillet'?'on':''}`,onClick:()=>setOpType('fillet')},
+              h('span',{className:'bic'},'⌒'),'Fillet')
+          ),
+          h('div',{className:'tt'},
+            h('div',{className:'ti'},opType==='chamfer'?'✂':'⌒'),
+            h('div',null,
+              h('div',{className:'tl'},opType==='chamfer'?'Chanfro — corte reto':'Fillet — arco suave'),
+              h('div',{className:'td'},opType==='chamfer'
+                ?'Substitui o vértice por um segmento reto. Tamanho exato garantido para qualquer ângulo.'
+                :'Substitui o vértice por um arco circular tangente às duas arestas.')
             )
           ),
-          h('div',{className:'tr'},
-            h('button',{className:`tb ${offDir==='inward'?'on':''}`,
-              onClick:()=>{setOffDir('inward');setOffResult(null);setOffApplied(false);}},
-              '← Interno'),
-            h('button',{className:`tb ${offDir==='outward'?'on':''}`,
-              onClick:()=>{setOffDir('outward');setOffResult(null);setOffApplied(false);}},
-              'Externo →')
+          h('span',{className:'fl'},opType==='chamfer'?'Tamanho total do chanfro':'Raio do fillet'),
+          h('div',{className:'ir'},
+            h('input',{type:'number',value:opSize,min:'.1',max:'100',step:'.1',onChange:e=>setOpSize(e.target.value)}),
+            h('span',{className:'iu'},'m')
           ),
-          h('button',{
-            className:'bp',
-            onClick:applyOffset,
-            disabled:!hasSrc||!parseFloat(offDist),
-            style:offApplied?{background:'#007a8a'}:{}
-          },offApplied?'✓ Recalcular offset':'Aplicar offset (preview laranja)'),
-          !offApplied&&hasSrc&&h('div',{style:{fontSize:'10px',color:'#f5a62388',textAlign:'center'}},
-            'Aplique o offset antes de gerar o resultado')
-        ),
-        target==='direct'&&h('div',{style:{fontSize:'11px',color:'#3a4155'}},
-          `${opType==='chamfer'?'Chanfro':'Fillet'} aplicado diretamente no polígono original — sem recuo.`)
-      )
-    ),
+          szValid&&h('div',{className:'fh'},opType==='chamfer'
+            ?`Cada braço: ${(szNum/2).toFixed(2)}m a partir do vértice`
+            :`Comprimento do arco por quina: ~${(szNum*Math.PI/2).toFixed(2)}m (90°)`)
+        )
+      ),
 
-    // ── STEP 3: Vértices ──────────────────────────────────────
-    h('div',{className:'panel'},
-      h('div',{className:'panel-header'},
-        h('span',{className:`sb ${!hasBase?'sb-off':'sb-act'}`},'3'),'Vértices'),
-      h('div',{className:'panel-body'},
-        h('div',{className:'tr',style:{marginBottom:'8px'}},
-          h('button',{className:`tb ${vxMode==='all'?'on':''}`,onClick:()=>setVxMode('all')},'Todos'),
-          h('button',{className:`tb ${vxMode==='select'?'on':''}`,disabled:!hasBase,onClick:()=>setVxMode('select')},'Selecionar')
-        ),
-        vxMode==='select'&&hasBase&&(
-          vxCount===0?h('div',{style:{fontSize:'11px',color:'#3a4155'}},'Nenhum vértice disponível.'):
-          h('div',null,
-            h('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:'6px',alignItems:'center'}},
-              h('span',{style:{fontSize:'10px',color:'#3a4155'}},`${selVerts.length} / ${vxArms.filter(Boolean).length} selecionados`),
-              h('button',{onClick:toggleAll,style:{background:'transparent',border:'1px solid #252838',borderRadius:'4px',padding:'2px 7px',color:'#55607a',fontSize:'10px',cursor:'pointer'}},
-                selVerts.length===vxArms.filter(Boolean).length?'Limpar':'Todos')
+      // ── STEP 2: Aplicar em ───────────────────────────────────
+      h('div',{className:'panel'},
+        h('div',{className:'panel-header'},
+          h('span',{className:`sb ${!hasSrc?'sb-off':'sb-act'}`},'2'),'Aplicar em'),
+        h('div',{className:'panel-body'},
+          h('div',{className:'tr',style:{marginBottom:'8px'}},
+            h('button',{className:`tb ibtn ${target==='direct'?'on':''}`,disabled:!hasSrc,
+              onClick:()=>{setTarget('direct');setOffApplied(false);}},
+              h('span',{className:'bic'},'⊙'),'Polígono original'),
+            h('button',{className:`tb ibtn ${target==='offset'?'on':''}`,disabled:!hasSrc,
+              onClick:()=>setTarget('offset')},
+              h('span',{className:'bic'},'⤢'),'Com offset')
+          ),
+          target==='offset'&&h('div',{style:{display:'flex',flexDirection:'column',gap:'8px',padding:'8px',background:'#0d0f18',borderRadius:'7px',border:'1px solid #1e2232'}},
+            h('div',null,
+              h('span',{className:'fl'},'Distância do offset'),
+              h('div',{className:'ir'},
+                h('input',{type:'number',value:offDist,min:'.1',max:'500',step:'.5',
+                  onChange:e=>{setOffDist(e.target.value);setOffResult(null);setOffApplied(false);}}),
+                h('span',{className:'iu'},'m')
+              )
             ),
-            h('div',{className:'vg'},
-              ...Array.from({length:vxCount},(_,i)=>{
-                const av=vxArms[i],sl=selVerts.includes(i);
-                return h('button',{key:i,className:`vb ${av?(sl?'sl':'av'):'na'}`,onClick:()=>toggleV(i),title:av?`Vértice ${i+1}`:`V${i+1}: segmento curto demais`},`V${i+1}`);
-              })
+            h('div',{className:'tr'},
+              h('button',{className:`tb ibtn ${offDir==='inward'?'on':''}`,
+                onClick:()=>{setOffDir('inward');setOffResult(null);setOffApplied(false);}},
+                h('span',{className:'bic'},'←'),'Interno'),
+              h('button',{className:`tb ibtn ${offDir==='outward'?'on':''}`,
+                onClick:()=>{setOffDir('outward');setOffResult(null);setOffApplied(false);}},
+                'Externo',h('span',{className:'bic',style:{marginLeft:'5px',marginRight:0}},'→'))
             ),
-            h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'5px'}},'Desbotados = segmento menor que a operação')
-          )
-        ),
-        hasBase&&szValid&&h('div',{style:{fontSize:'11px',color:'#3a4155',paddingTop:'4px'}},
-          `Preview azul · ${activeVerts} vértice(s) · ${opType==='chamfer'?`chanfro ${szNum}m`:`fillet R${szNum}m`}`)
-      )
-    ),
+            h('button',{
+              className:'bp ibtn',
+              onClick:applyOffset,
+              disabled:!hasSrc||!parseFloat(offDist),
+              style:offApplied?{background:'#007a8a'}:{}
+            },h('span',{className:'bic'},offApplied?'✓':'⤢'),offApplied?'Recalcular offset':'Aplicar offset (preview laranja)'),
+            !offApplied&&hasSrc&&h('div',{style:{fontSize:'10px',color:'#f5a62388',textAlign:'center'}},
+              'Aplique o offset antes de gerar o resultado')
+          ),
+          target==='direct'&&h('div',{style:{fontSize:'11px',color:'#3a4155'}},
+            `${opType==='chamfer'?'Chanfro':'Fillet'} aplicado diretamente no polígono original — sem recuo.`)
+        )
+      ),
 
-    // ── Actions ───────────────────────────────────────────────
-    h('div',{style:{display:'flex',flexDirection:'column',gap:'6px'}},
-      h('button',{className:'bp',onClick:applyFinal,disabled:!canGenerate},
-        running?'⏳ Salvando…':`✓ Gerar ${opType==='chamfer'?'chanfro':'fillet'}`),
-      h('div',{style:{display:'flex',gap:'6px'}},
-        h('button',{className:'bs',onClick:preview,disabled:!hasBase||!szValid},'Atualizar preview'),
-        h('button',{className:'bs',onClick:clearPreviews,disabled:!hasSrc},'Limpar previews')
-      )
-    ),
+      // ── STEP 3: Vértices ─────────────────────────────────────
+      h('div',{className:'panel'},
+        h('div',{className:'panel-header'},
+          h('span',{className:`sb ${!hasBase?'sb-off':'sb-act'}`},'3'),'Vértices'),
+        h('div',{className:'panel-body'},
+          h('div',{className:'tr',style:{marginBottom:'8px'}},
+            h('button',{className:`tb ibtn ${vxMode==='all'?'on':''}`,onClick:()=>setVxMode('all')},
+              h('span',{className:'bic'},'▦'),'Todos'),
+            h('button',{className:`tb ibtn ${vxMode==='select'?'on':''}`,disabled:!hasBase,onClick:()=>setVxMode('select')},
+              h('span',{className:'bic'},'☑'),'Selecionar')
+          ),
+          vxMode==='select'&&hasBase&&(
+            vxCount===0?h('div',{style:{fontSize:'11px',color:'#3a4155'}},'Nenhum vértice disponível.'):
+            h('div',null,
+              h('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:'6px',alignItems:'center'}},
+                h('span',{style:{fontSize:'10px',color:'#3a4155'}},`${selVerts.length} / ${vxArms.filter(Boolean).length} selecionados`),
+                h('button',{onClick:toggleAll,style:{background:'transparent',border:'1px solid #252838',borderRadius:'4px',padding:'2px 7px',color:'#55607a',fontSize:'10px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px'}},
+                  h('span',null,selVerts.length===vxArms.filter(Boolean).length?'✕':'☑'),
+                  selVerts.length===vxArms.filter(Boolean).length?'Limpar':'Todos')
+              ),
+              h('div',{className:'vg'},
+                ...Array.from({length:vxCount},(_,i)=>{
+                  const av=vxArms[i],sl=selVerts.includes(i);
+                  return h('button',{key:i,className:`vb ${av?(sl?'sl':'av'):'na'}`,onClick:()=>toggleV(i),title:av?`Vértice ${i+1}`:`V${i+1}: segmento curto demais`},`V${i+1}`);
+                })
+              ),
+              h('div',{style:{fontSize:'10px',color:'#2e3650',marginTop:'5px'}},'Desbotados = segmento menor que a operação')
+            )
+          ),
+          hasBase&&szValid&&h('div',{style:{fontSize:'11px',color:'#3a4155',paddingTop:'4px'}},
+            `Preview azul · ${activeVerts} vértice(s) · ${opType==='chamfer'?`chanfro ${szNum}m`:`fillet R${szNum}m`}`)
+        )
+      ),
 
-    // Log
-    logs.length>0&&h('div',{className:'lb'},
-      ...logs.slice().reverse().map((l,i)=>
-        h('div',{key:i,className:`l${l.t==='ok'?'k':l.t==='err'?'e':l.t==='warn'?'w':'d'}`},
-          `${l.ts}  ${l.m}`)
+      // ── Actions ───────────────────────────────────────────────
+      h('div',{style:{display:'flex',flexDirection:'column',gap:'6px'}},
+        h('button',{className:'bp ibtn',onClick:applyFinal,disabled:!canGenerate},
+          h('span',{className:'bic'},running?'⏳':'✓'),running?'Salvando…':`Gerar ${opType==='chamfer'?'chanfro':'fillet'}`),
+        h('div',{style:{display:'flex',gap:'6px'}},
+          h('button',{className:'bs ibtn',onClick:preview,disabled:!hasBase||!szValid},
+            h('span',{className:'bic'},'🔄'),'Atualizar preview'),
+          h('button',{className:'bs ibtn',onClick:clearPreviews,disabled:!hasSrc},
+            h('span',{className:'bic'},'🧹'),'Limpar previews')
+        )
+      ),
+
+      // Log
+      logs.length>0&&h('div',{className:'lb'},
+        ...logs.slice().reverse().map((l,i)=>
+          h('div',{key:i,className:`l${l.t==='ok'?'k':l.t==='err'?'e':l.t==='warn'?'w':'d'}`},
+            `${l.ts}  ${l.m}`)
+        )
       )
     )
   );
