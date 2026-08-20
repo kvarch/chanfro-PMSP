@@ -392,6 +392,18 @@ function offsetPolylineFeature(feature,d){
     mOff,origin,scale,isOpen:true,isDirect:hasBevels
   };
 }
+const PV_VTX='__oc_vtx__'; // camada temporária de marcadores de vértice (modo "Selecionar")
+
+// Pequeno quadrado (polígono) centrado no vértice, usado como marcador visual —
+// reaproveita o mesmo caminho de estilo (color/stroke/fillOpacity) já confirmado
+// para polígonos/linhas nesta app, em vez de depender de renderização de Point
+// (nunca testada aqui).
+function tinyMarkerPolygon(center,origin,scale,r){
+  const sq=[[-r,-r],[r,-r],[r,r],[-r,r],[-r,-r]];
+  const ring=sq.map(([dx,dy])=>fromMetric([center[0]+dx,center[1]+dy],origin,scale));
+  return{type:'Polygon',coordinates:[ring]};
+}
+
 function directBaseResult(feature,isOpen){
   const coords=isOpen?feature.geometry.coordinates:feature.geometry.coordinates[0];
   const origin=coords[0],scale=degPerMetre(avgLat(coords));
@@ -914,6 +926,29 @@ function App(){
     setSelVerts(p=>p.filter(i=>i<n&&arms[i]));
   },[srcFeat,opSize,opType,isOpen]);
 
+  // ── Preview dos vértices no mapa (aparece só no modo "Selecionar") ──
+  // Mostra um marcador em cada vértice — azul/maior se selecionado, cinza se
+  // disponível, laranja se indisponível (segmento curto demais) — para que
+  // fique claro no mapa qual vértice cada chip V1/V2/... representa.
+  useEffect(()=>{
+    const base=getBase();
+    const show=activeTab==='chanfro'&&vxMode==='select'&&!!base;
+    if(!show){
+      rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:[]}]).catch(()=>{});
+      return;
+    }
+    const{mOrig,origin,scale,isOpen:io}=base;
+    const n=io?mOrig.length:mOrig.length-1;
+    const feats=Array.from({length:n},(_,i)=>{
+      const sl=selVerts.includes(i),av=vxArms[i];
+      const color=sl?'#00ACCD':av?'#8a8f98':'#E1401E';
+      const r=sl?.6:.4;
+      return{type:'Feature',properties:{color,stroke:color,strokeWidth:1,fillOpacity:sl?.85:.5,label:`V${i+1}`},
+        geometry:tinyMarkerPolygon(mOrig[i],origin,scale,r)};
+    });
+    rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:feats}]).catch(()=>{});
+  },[activeTab,vxMode,selVerts,vxArms,srcFeat,getBase]);
+
   // ── Capture ──
   const capture=useCallback(async()=>{
     log('Lendo seleção…','d');
@@ -1061,6 +1096,7 @@ function App(){
       setActiveRawIds(newId?[newId]:chanfroEditInPlace?[]:activeRawIds);
 
       setStatus({t:'ok',m:'Resultado criado!'});
+      await rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:[]}]).catch(()=>{});
     }catch(e){log('Falha: '+e.message,'err');setStatus({t:'err',m:'Erro ao salvar'});}
     finally{setRunning(false);}
   },[getBase,opSize,opType,vxMode,selVerts,chanfroEditInPlace,activeRawIds,log]);
@@ -1349,7 +1385,8 @@ function App(){
                     title:av?`Vértice ${i+1}`:`V${i+1}: segmento curto demais`},`V${i+1}`);
                 })
               ),
-              h('div',{style:{fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'5px'}},'Desbotados = segmento menor que a operação')
+              h('div',{style:{fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'5px'}},'Desbotados = segmento menor que a operação'),
+              h('div',{style:{fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'3px'}},'Marcadores no mapa: azul = selecionado · cinza = disponível · laranja = indisponível')
             )
           ),
           hasBase&&szValid&&h('div',{style:{fontSize:'11px',color:'var(--md-sys-color-on-surface-variant)',paddingTop:'4px'}},
@@ -1394,7 +1431,7 @@ function App(){
     ),
 
     // Rodapé — versão
-    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v33 · KV Arquitetos')
+    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v34 · KV Arquitetos')
   );
 }
 
