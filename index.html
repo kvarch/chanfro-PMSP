@@ -770,6 +770,40 @@ function extractCreatedId(res){
   return null;
 }
 
+// Substitui o(s) elemento(s) original(is) pelo novo resultado, tentando
+// preservar o histórico de desfazer (Ctrl+Z) do Giraffe como UM único passo.
+//
+// Quando há exatamente 1 elemento original (Offset e Chanfro/Fillet — sempre
+// 1 entrada → 1 saída), tenta updateRawSection (edição atômica, mesmo id,
+// deveria contar como 1 ação no histórico). Se falhar ou o formato de retorno
+// não for o esperado, cai no caminho já validado de apagar + criar (que exige
+// 2 ações — e por isso 2 Ctrl+Z para desfazer completamente).
+//
+// Quando há 2+ elementos originais (Junção de Linhas — N entradas → 1 saída),
+// não há como evitar pelo menos 2 ações (apagar os extras + criar/atualizar o
+// resultado), já que múltiplos elementos estão sendo consumidos em um só —
+// isso é inerente à operação, não uma limitação evitável no código.
+async function tryReplaceElement(existingIds,newFeature,log){
+  const props={...newFeature.properties,layerId:'default'};
+  if(existingIds.length===1){
+    try{
+      await rpc.invoke('updateRawSection',[{id:existingIds[0],geometry:newFeature.geometry,properties:props}]);
+      log('Elemento atualizado em uma única ação (histórico de desfazer em 1 passo)');
+      return existingIds[0];
+    }catch(e){
+      log('updateRawSection indisponível/falhou ('+e.message+') — usando apagar+criar (2 passos no desfazer)','warn');
+    }
+  }
+  try{
+    await rpc.invoke('deleteRawSections',[existingIds]);
+    const created=await rpc.invoke('createRawSection',[{...newFeature,properties:props}]);
+    return extractCreatedId(created);
+  }catch(e){
+    log('Falha ao substituir: '+e.message,'warn');
+    return null;
+  }
+}
+
 
 
 // ═══════════════════════════════════════════════════════
@@ -1040,16 +1074,14 @@ function App(){
 
     try{
       if(offSaveMode==='delete'&&activeRawIds.length>0){
-        try{
-          await rpc.invoke('deleteRawSections',[activeRawIds]);
-          const created=await rpc.invoke('createRawSection',[{...finalFeature,properties:{...finalFeature.properties,layerId:'default'}}]);
-          const newId=extractCreatedId(created);
-          setActiveRawIds(newId?[newId]:[]);
-          log(newId?`Original substituído por "${name}" (editável)`:'Original substituído, mas ID do novo elemento não confirmado — próxima etapa criará cópia','warn');
-        }catch(e){
-          log('Falha ao substituir ('+e.message+') — salvando como cópia','warn');
-          const newId=await saveOffsetAsCopy(finalFeature,name);
-          setActiveRawIds(newId?[newId]:[]);
+        const newId=await tryReplaceElement(activeRawIds,finalFeature,log);
+        if(newId){
+          setActiveRawIds([newId]);
+          log(`Original substituído por "${name}" (editável)`);
+        }else{
+          log('Falha ao substituir — salvando como cópia','warn');
+          const copyId=await saveOffsetAsCopy(finalFeature,name);
+          setActiveRawIds(copyId?[copyId]:[]);
         }
       }else{
         const newId=await saveOffsetAsCopy(finalFeature,name);
@@ -1091,13 +1123,10 @@ function App(){
 
       let newId=null;
       if(chanfroEditInPlace&&activeRawIds.length>0){
-        try{
-          await rpc.invoke('deleteRawSections',[activeRawIds]);
-          const created=await rpc.invoke('createRawSection',[{...result,properties:{...result.properties,layerId:'default'}}]);
-          newId=extractCreatedId(created);
-          log(newId?`Original substituído por "${name}"`:'Substituído, mas ID do novo elemento não confirmado','warn');
-        }catch(e){
-          log('Falha ao substituir ('+e.message+') — salvando como cópia','warn');
+        newId=await tryReplaceElement(activeRawIds,result,log);
+        if(newId)log(`Original substituído por "${name}"`);
+        else{
+          log('Falha ao substituir — salvando como cópia','warn');
           newId=await saveAsCopy();
         }
       }else{
@@ -1443,7 +1472,7 @@ function App(){
     ),
 
     // Rodapé — versão
-    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v39 · KV Arquitetos')
+    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v40 · KV Arquitetos')
   );
 }
 
