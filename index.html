@@ -851,20 +851,24 @@ function App(){
       }
 
       let feat,isOpenResult;
+      // Preserva as propriedades da primeira linha selecionada (cor, fill, uso, etc.)
+      // no elemento unido — exceto o "id" antigo, que não deve ser herdado por um
+      // elemento novo e distinto (o id correto é atribuído na criação/edição).
+      const{id:_oldId,...baseProps}=feats[0]?.properties||{};
 
       if(feats.length===2){
         // Calcula interseção pelos 2 últimos pontos de L1 e 2 primeiros de L2,
         // retorna array completo: [...todosL1, B, ...todosL2]
         const result=joinAtIntersection(feats[0],feats[1]);
         if(!result){setJoinMsg({t:'err',m:'Linhas paralelas — sem interseção possível'});return;}
-        feat={type:'Feature',properties:{},geometry:{type:'LineString',coordinates:result.path}};
+        feat={type:'Feature',properties:{...baseProps},geometry:{type:'LineString',coordinates:result.path}};
         isOpenResult=true;
         log(`B (interseção): ${result.b.map(x=>x.toFixed(6)).join(', ')}`);
       }else{
         // N>2: polígono dos N cantos
         const res=joinLinesToCorners(feats);
         if(res.err){setJoinMsg({t:'err',m:res.err});return;}
-        feat={type:'Feature',properties:{},geometry:{type:'Polygon',coordinates:[res.corners]}};
+        feat={type:'Feature',properties:{...baseProps},geometry:{type:'Polygon',coordinates:[res.corners]}};
         isOpenResult=false;
         log(`Junção: ${feats.length} linhas → polígono ${res.n} vértices`);
       }
@@ -1439,7 +1443,7 @@ function App(){
     ),
 
     // Rodapé — versão
-    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v38 · KV Arquitetos')
+    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v39 · KV Arquitetos')
   );
 }
 
