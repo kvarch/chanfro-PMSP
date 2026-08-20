@@ -931,19 +931,20 @@ function App(){
   // ── Preview dos vértices no mapa (aparece só no modo "Selecionar") ──
   // Mostra um losango azul apenas nos vértices atualmente selecionados —
   // some individualmente ao desmarcar. Guarda contra condição de corrida
-  // (descarta resultado antigo se o efeito já rodou de novo) e sempre limpa
-  // a camada antes de redesenhar, para evitar geometria "presa" em cache.
+  // (descarta resultado antigo se o efeito já rodou de novo). Usa
+  // removeTempLayer (não apenas uma FeatureCollection vazia) para garantir
+  // que a camada seja de fato removida antes de redesenhar.
   useEffect(()=>{
     let cancelled=false;
     const base=getBase();
     const show=activeTab==='chanfro'&&vxMode==='select'&&!!base;
     (async()=>{
-      await rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:[]}]).catch(()=>{});
+      await rpc.invoke('removeTempLayer',[PV_VTX]).catch(()=>{});
       if(cancelled||!show)return;
       const{mOrig,origin,scale}=base;
       const feats=selVerts.map(i=>({
         type:'Feature',
-        properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:1,fillOpacity:.9,label:`V${i+1}`},
+        properties:{label:`V${i+1}`},
         geometry:diamondMarkerGeometry(mOrig[i],origin,scale,1.1)
       }));
       if(feats.length&&!cancelled)await rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:feats}]).catch(()=>{});
@@ -953,7 +954,7 @@ function App(){
 
   // ── Limpa o marcador de vértices ao desmontar (fechar/trocar de app) ──
   useEffect(()=>()=>{
-    rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:[]}]).catch(()=>{});
+    rpc.invoke('removeTempLayer',[PV_VTX]).catch(()=>{});
   },[]);
 
   // ── Capture ──
@@ -1103,7 +1104,7 @@ function App(){
       setActiveRawIds(newId?[newId]:chanfroEditInPlace?[]:activeRawIds);
 
       setStatus({t:'ok',m:'Resultado criado!'});
-      await rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:[]}]).catch(()=>{});
+      await rpc.invoke('removeTempLayer',[PV_VTX]).catch(()=>{});
     }catch(e){log('Falha: '+e.message,'err');setStatus({t:'err',m:'Erro ao salvar'});}
     finally{setRunning(false);}
   },[getBase,opSize,opType,vxMode,selVerts,chanfroEditInPlace,activeRawIds,log]);
@@ -1393,7 +1394,7 @@ function App(){
                 })
               ),
               h('div',{style:{fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'5px'}},'Desbotados = segmento menor que a operação'),
-              h('div',{style:{fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'3px'}},'Um losango azul aparece no mapa em cada vértice selecionado')
+              h('div',{style:{fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'3px'}},'Um losango aparece no mapa em cada vértice selecionado')
             )
           ),
           hasBase&&szValid&&h('div',{style:{fontSize:'11px',color:'var(--md-sys-color-on-surface-variant)',paddingTop:'4px'}},
@@ -1438,7 +1439,7 @@ function App(){
     ),
 
     // Rodapé — versão
-    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v36 · KV Arquitetos')
+    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v38 · KV Arquitetos')
   );
 }
 
