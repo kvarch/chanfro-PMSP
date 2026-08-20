@@ -394,14 +394,20 @@ function offsetPolylineFeature(feature,d){
 }
 const PV_VTX='__oc_vtx__'; // camada temporária de marcadores de vértice (modo "Selecionar")
 
-// Pequeno quadrado (polígono) centrado no vértice, usado como marcador visual —
-// reaproveita o mesmo caminho de estilo (color/stroke/fillOpacity) já confirmado
-// para polígonos/linhas nesta app, em vez de depender de renderização de Point
-// (nunca testada aqui).
-function tinyMarkerPolygon(center,origin,scale,r){
-  const sq=[[-r,-r],[r,-r],[r,r],[-r,r],[-r,-r]];
-  const ring=sq.map(([dx,dy])=>fromMetric([center[0]+dx,center[1]+dy],origin,scale));
-  return{type:'Polygon',coordinates:[ring]};
+// Marcador em "X" (duas barras diagonais cruzadas), centrado no vértice.
+// Usa MultiPolygon reaproveitando o mesmo caminho de estilo (color/stroke/
+// fillOpacity) já confirmado nesta app, em vez de depender de Point.
+function rotatedBarRing(angleDeg,length,thickness){
+  const a=angleDeg*Math.PI/180,cos=Math.cos(a),sin=Math.sin(a);
+  const hl=length/2,ht=thickness/2;
+  const corners=[[-hl,-ht],[hl,-ht],[hl,ht],[-hl,ht],[-hl,-ht]];
+  return corners.map(([x,y])=>[x*cos-y*sin,x*sin+y*cos]);
+}
+function xMarkerGeometry(center,origin,scale,size){
+  const length=size,thickness=size*0.32;
+  const bar1=rotatedBarRing(45,length,thickness).map(([dx,dy])=>fromMetric([center[0]+dx,center[1]+dy],origin,scale));
+  const bar2=rotatedBarRing(-45,length,thickness).map(([dx,dy])=>fromMetric([center[0]+dx,center[1]+dy],origin,scale));
+  return{type:'MultiPolygon',coordinates:[[bar1],[bar2]]};
 }
 
 function directBaseResult(feature,isOpen){
@@ -927,27 +933,34 @@ function App(){
   },[srcFeat,opSize,opType,isOpen]);
 
   // ── Preview dos vértices no mapa (aparece só no modo "Selecionar") ──
-  // Mostra um marcador em cada vértice — azul/maior se selecionado, cinza se
-  // disponível, laranja se indisponível (segmento curto demais) — para que
-  // fique claro no mapa qual vértice cada chip V1/V2/... representa.
+  // Mostra um "X" apenas nos vértices atualmente selecionados — some
+  // individualmente ao desmarcar. Guarda contra condição de corrida: se o
+  // efeito rodar de novo antes da chamada assíncrona anterior terminar, o
+  // resultado antigo é descartado (evita layer "preso" em estado errado).
   useEffect(()=>{
+    let cancelled=false;
     const base=getBase();
     const show=activeTab==='chanfro'&&vxMode==='select'&&!!base;
-    if(!show){
-      rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:[]}]).catch(()=>{});
-      return;
-    }
-    const{mOrig,origin,scale,isOpen:io}=base;
-    const n=io?mOrig.length:mOrig.length-1;
-    const feats=Array.from({length:n},(_,i)=>{
-      const sl=selVerts.includes(i),av=vxArms[i];
-      const color=sl?'#00ACCD':av?'#8a8f98':'#E1401E';
-      const r=sl?.6:.4;
-      return{type:'Feature',properties:{color,stroke:color,strokeWidth:1,fillOpacity:sl?.85:.5,label:`V${i+1}`},
-        geometry:tinyMarkerPolygon(mOrig[i],origin,scale,r)};
-    });
-    rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:feats}]).catch(()=>{});
-  },[activeTab,vxMode,selVerts,vxArms,srcFeat,getBase]);
+    (async()=>{
+      if(!show){
+        if(!cancelled)await rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:[]}]).catch(()=>{});
+        return;
+      }
+      const{mOrig,origin,scale}=base;
+      const feats=selVerts.map(i=>({
+        type:'Feature',
+        properties:{color:'#00ACCD',stroke:'#00ACCD',strokeWidth:1,fillOpacity:.9,label:`V${i+1}`},
+        geometry:xMarkerGeometry(mOrig[i],origin,scale,1.1)
+      }));
+      if(!cancelled)await rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:feats}]).catch(()=>{});
+    })();
+    return()=>{cancelled=true;};
+  },[activeTab,vxMode,selVerts,srcFeat,getBase]);
+
+  // ── Limpa o marcador de vértices ao desmontar (fechar/trocar de app) ──
+  useEffect(()=>()=>{
+    rpc.invoke('addTempLayerGeoJSON',[PV_VTX,{type:'FeatureCollection',features:[]}]).catch(()=>{});
+  },[]);
 
   // ── Capture ──
   const capture=useCallback(async()=>{
@@ -1386,7 +1399,7 @@ function App(){
                 })
               ),
               h('div',{style:{fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'5px'}},'Desbotados = segmento menor que a operação'),
-              h('div',{style:{fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'3px'}},'Marcadores no mapa: azul = selecionado · cinza = disponível · laranja = indisponível')
+              h('div',{style:{fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'3px'}},'Um "X" azul aparece no mapa em cada vértice selecionado')
             )
           ),
           hasBase&&szValid&&h('div',{style:{fontSize:'11px',color:'var(--md-sys-color-on-surface-variant)',paddingTop:'4px'}},
@@ -1431,7 +1444,7 @@ function App(){
     ),
 
     // Rodapé — versão
-    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v34 · KV Arquitetos')
+    h('div',{style:{textAlign:'center',fontSize:'10px',color:'var(--md-sys-color-outline)',marginTop:'4px',paddingBottom:'2px'}},'beta v35 · KV Arquitetos')
   );
 }
 
